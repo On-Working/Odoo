@@ -1,0 +1,1 @@
+from odoo.odoo import odoo_connect

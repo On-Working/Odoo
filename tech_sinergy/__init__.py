@@ -1,0 +1,1 @@
+from tech_sinergy.tech import tech_api
