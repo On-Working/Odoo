@@ -1,15 +1,20 @@
 import schedule
+import time
 import product
 
+
 def main():
-  created = False
+    product.produc_create()
+    local_time = time.strftime("%Y-%m-%d %H:%M:%S \n")
+    print(f"Ultima actualización: {local_time}", end="\r")
 
-  if created == False:
-    print('Base de datos sin cambios')
-  else:
-    product.produc_creat()
 
-if __name__ == '__main__':
-  main()
+if __name__ == "__main__":
+    main()
 
-  print('Conexión finalizada, base de datos actualizada con exito')
+    schedule.every().day.do(main)
+
+    while True:
+        schedule.run_pending()
+
+        time.sleep(1)

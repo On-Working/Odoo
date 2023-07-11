@@ -1,1 +1,1 @@
-from product.creation import produc_creat
+from product.creation import produc_create

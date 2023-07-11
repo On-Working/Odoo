@@ -1,36 +1,36 @@
 from decouple import config
 import requests
 
+url = config("tech_url", default="")  # * Url del API
+
+
 def tech_api():
     # ? Llamada al API
-    print('Iniciando conexión con el API de Tecnosinergia')
+    print("Iniciando conexión con el API de Tecnosinergia")
 
     headers = {
-        'Content-Type' : 'application/json',
-        'api-token' : config('tech_token', default='')
+        "Content-Type": "application/json",
+        "api-token": config("tech_token", default=""),
     }
 
     redirects = {
-        'test': '/status', # Prueba token
-        'products': '/item/list', # Lista de productos
-        'product': '/item/list?item_id=', # Producto especifico
-        'addresses': '/address/list', # Lista de direcciones
-        'address': '/address/list?address_id=', # Dirección especifica
-        'order': '/order/create'
+        "test": "/status",  # Prueba token
+        "products": "/item/list",  # Lista de productos
+        "product": "/item/list?item_id=",  # Producto especifico
+        "addresses": "/address/list",  # Lista de direcciones
+        "address": "/address/list?address_id=",  # Dirección especifica
+        "order": "/order/create",  # Creación de una orden
     }
 
-    url = config('tech_url', default = '') # * Url del API
-    res = requests.get(url + redirects.get('product') + '9891', headers=headers) # * Llamada a la API
+    res = requests.get(url + redirects.get("products"), headers=headers)
 
     if res.status_code != 200:
-        print('Error en la llamada al API')
+        print("Error en la llamada al API")
+        return
 
-    info = res.json()
-    data = info.get('data')
-    image = data.get('image')
-    get_image = requests.get(image)
-    data_image = get_image.content
+    info = res.json()  # Respuesta en formato JSON
+    data = info.get("data")  # Arreglo de productos
 
-    print('Conexión con el API Tecnosinergia exitosa \n')
-    print('Retornando datos: Info, Data, Data_image \n')
-    return (info, data, data_image)
+    print("Conexión con el API Tecnosinergia exitosa")
+    print("Retornando datos: Info, Data \n")
+    return (info, data)
