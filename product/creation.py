@@ -76,13 +76,17 @@ def cat_created(objects, actions, name):
 
 def cat_creation(objects, actions, record):
     name = html.unescape(record.get("category"))
+    parent = html.unescape(record.get("parent_subcategory"))
+    created = cat_created(objects, actions, name)
+
     cat_data = {
         "name": name,
-        # "parent_id": record.get("parent_subcategory"),
+        "parent_id": parent,
         "website_description": name,
     }
 
-    created = cat_created(objects, actions, cat_data.get("name"))
+    if name == parent:
+        cat_data.pop("parent_id")
 
     if created[0]:
         write = models.execute_kw(
