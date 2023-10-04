@@ -2,7 +2,6 @@ from decouple import config
 import odoo
 import tech_sinergy
 import requests
-import textwrap
 import html
 import validators
 import base64
@@ -264,37 +263,72 @@ def stock_creation(objects, actions, id, qty):
     return picking_confirmation
 
 
-def attribute_created(objects, actions, id):
-    fields = ["attribute_line_ids"]
+def attribute_created(objects, actions, sku, attrs):
+    atts = attrs
+    attributes = []
+
     product_data = models.execute_kw(
         db,
         uid,
         password,
-        objects.get("products"),
-        actions.get("read"),
-        [id, fields],
-        {},
+        objects.get("product_template"),
+        actions.get("s_read"),
+        [[["default_code", "=", sku]]],
+        {"fields": ["attribute_line_ids"]},
     )
 
-    attribute_line_ids = product_data[0].get("attribute_line_ids")
-    if not attribute_line_ids:
+    if not product_data:
+        print(sku)
         return False
 
-    return True
+    attribute_pavs = product_data[0].get("attribute_line_ids")
+
+    for attribute in attribute_pavs:
+        attributes.append(attribute)
+
+    for attr_id in attributes:
+        attribute_value_info = models.execute_kw(
+            db,
+            uid,
+            password,
+            objects.get("attribute_value"),
+            actions.get("s_read"),
+            [[["pav_attribute_line_ids", "=", attr_id]]],
+        )
+
+        attribute_name = attribute_value_info[0].get("attribute_id")[1]
+
+        if atts.__contains__(attribute_name):
+            atts.pop(attribute_name)
+
+    length = len(attrs)
+
+    if length <= 0:
+        return False
+
+    product_attributes = []
+
+    for attr_name, value in atts.items():
+        attr_creat = attribute_creation(objects, actions, attr_name, value)
+        product_attributes.append(attr_creat)
+
+    return product_attributes
 
 
-def attribute_creation(objects, actions, value):
-    attribute_ids = models.execute_kw(
+def attribute_creation(objects, actions, attribute_name, value):
+    attribute_search = models.execute_kw(
         db,
         uid,
         password,
         objects.get("attribute"),
         actions.get("s_read"),
-        [[["name", "=", "Marca"]]],
+        [[["name", "=", attribute_name]]],
         {"fields": ["id"]},
     )
 
-    attribute_value_ids = models.execute_kw(
+    attribute_id = attribute_search[0].get("id")
+
+    attribute_value = models.execute_kw(
         db,
         uid,
         password,
@@ -304,35 +338,31 @@ def attribute_creation(objects, actions, value):
         {"fields": ["id"]},
     )
 
-    if attribute_ids:
-        attribute_id = attribute_ids[0]["id"]
-
-    attribute = [
-        (
-            0,
-            0,
-            {
-                "attribute_id": attribute_id,
-                "value_ids": [
-                    (0, 0, {"name": value, "attribute_id": attribute_id}),
-                ],
-            },
-        ),
-    ]
-
-    if attribute_value_ids:
-        attribute_value_id = attribute_value_ids[0]["id"]
-
-        attribute = [
-            (
-                0,
-                0,
+    if attribute_value:
+        attribute_value_id = attribute_value[0].get("id")
+    else:
+        attribute_value_id = models.execute_kw(
+            db,
+            uid,
+            password,
+            objects.get("attribute_value"),
+            actions.get("create"),
+            [
                 {
                     "attribute_id": attribute_id,
-                    "value_ids": [(4, attribute_value_id)],
-                },
-            ),
-        ]
+                    "name": value,
+                }
+            ],
+        )
+
+    attribute = (
+        0,
+        0,
+        {
+            "attribute_id": attribute_id,
+            "value_ids": [(4, attribute_value_id)],
+        },
+    )
 
     return attribute
 
@@ -359,7 +389,7 @@ def produc_create():
     products = 0
     errors = 0
 
-    objects = {  # * Modelos disponibles en Odoo
+    objects = {  # Modelos disponibles en Odoo
         "products": "product.product",
         "product_template": "product.template",
         "product_category": "product.public.category",
@@ -370,7 +400,7 @@ def produc_create():
         "scrap": "stock.scrap",
     }
 
-    actions = {  # * Acciones disponibles en Odoo
+    actions = {  # Acciones disponibles en Odoo
         "search": "search",
         "read": "read",
         "s_read": "search_read",
@@ -381,38 +411,39 @@ def produc_create():
     }
 
     for record in data:
-        # * Formateo de textos
-        name = html.unescape(record.get("name"))
-        title = textwrap.shorten(name, width=80, placeholder=". . .")
-        html_description = html.unescape(record.get("description"))
-        description = desc_format(html_description)
+        # * Variables
+        published = True
+        brand = html.unescape(record.get("brand")).upper()  # Marca
+        category = html.unescape(record.get("category")).upper()  # Categoria
+        attrs = {"Marca": brand, "Categoría": category}  # Attributes
+        sku = record.get("sku")  # SKU
+        stock_meri = record.get("stock_MER") | 0  # Stock de merida
+        stock_qroo = record.get("stock_QRO") | 0  # Stock de qroo
+        qty = stock_qroo + stock_meri  # Stock: merida||qroo
+        name = html.unescape(record.get("name"))  # Nombre de producto
+        clean_description = html.unescape(record.get("description"))
 
         # * Formateo de imagen
         final_image = get_image(record)
 
+        # * Formateo de textos
+        description = desc_format(clean_description)
+
         # * Verificación de existencia
-        prod_created = product_created(objects, actions, record.get("sku"))
+        prod_created = product_created(objects, actions, sku)
         prod_category = cat_creation(objects, actions, record)
-        category = record.get("category")
 
-        # * Verificación de stock
-        stock_meri = record.get("stock_MER") | 0
-        stock_qroo = record.get("stock_QRO") | 0
-        qty = stock_qroo + stock_meri
-
-        # * Creación de atributos
-        # attributes = attribute_creation(objects, actions, record.get("brand"))
+        # * Verificación de atributos
+        attributes = attribute_created(objects, actions, sku, attrs)
 
         # * Elección de publicación
-        published = True
         if qty <= 0 or category == "Marketing":
             published = False
 
-        # * Plantilla de creción del producto
+        # * Plantilla de creación del producto
         product_template = {
             "is_published": published,
             "name": name,
-            "x_name": title,
             "default_code": record.get("sku"),
             "public_categ_ids": [(6, 0, [prod_category])],
             "sale_ok": True,
@@ -426,20 +457,19 @@ def produc_create():
             "image_1920": final_image,  # Encode base64
             "allow_out_of_stock_order": False,
             "show_availability": True,
-            "available_threshold": 100,
-            # "attribute_line_ids": attributes,
+            "available_threshold": 50,
+            "attribute_line_ids": attributes,
+            # "unspsc_code_id": record.get("sat_code"),
         }
 
-        if final_image == False:
+        if final_image == False:  # * Imagen producto
             product_template.pop("image_1920")
+
+        if attributes == False:  # * Atributos producto
+            product_template.pop("attribute_line_ids")
 
         if prod_created[0]:
             prod_id = prod_created[1][0]
-            # attribute = attribute_created(objects, actions, prod_id)
-
-            # if attribute:
-            #     product_template.pop("attribute_line_ids")
-            #     attr += 1
 
             write = models.execute_kw(
                 db,

@@ -1,3 +1,7 @@
+# Sensitive data
+odoo_test.xml
+productos.json
+
 #VS Code configuration
 .vscode/
 
