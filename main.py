@@ -24,11 +24,20 @@ def main():
         f"Ultima actualización CT: {local_time}",
     )
 
+    local_time = time.strftime(f"{TIME_STR}")
+    print(f"Inicio de actualización Syscom: {local_time}", end="\r")
+    print("")
+    sys_products = product.sys_creation()
+    print(f"{sys_products} productos actualizados correctamente", end="\r")
+    print("")
+    local_time = time.strftime(f"{TIME_STR}")
+    print(f"Ultima actualización de Syscom: {local_time} \n", end="\r")
+
 
 if __name__ == "__main__":
     main()
 
-    schedule.every().day.do(main)
+    schedule.every().hour.do(main)
 
     while True:
         schedule.run_pending()
