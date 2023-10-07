@@ -27,7 +27,7 @@ def main():
     local_time = time.strftime(f"{TIME_STR}")
     print(f"Inicio de actualización Syscom: {local_time}", end="\r")
     print("")
-    sys_products = product.sys_creation()
+    sys_products = product.sys_main()
     print(f"{sys_products} productos actualizados correctamente", end="\r")
     print("")
     local_time = time.strftime(f"{TIME_STR}")

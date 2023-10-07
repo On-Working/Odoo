@@ -7,8 +7,119 @@ import re
 import odoo
 import sysc
 
+db = config("odoo_db", default="")
+odo = odoo.odoo_connect(db)
+
+uid = odo[0]
+models = odo[1]
+password = odo[2]
+
 brands = sysc.sys_brands()
-catalogue = sysc.sys_catalogue()
+exchange = sysc.sys_exchange()
+
+
+def attribute_created(objects, actions, sku, attrs):
+    atts = attrs
+    attributes = []
+
+    product_data = models.execute_kw(
+        db,
+        uid,
+        password,
+        objects.get("product_template"),
+        actions.get("s_read"),
+        [[["default_code", "=", sku]]],
+        {"fields": ["attribute_line_ids"]},
+    )
+
+    if not product_data:
+        print(sku)
+        return False
+
+    attribute_pavs = product_data[0].get("attribute_line_ids")
+
+    for attribute in attribute_pavs:
+        attributes.append(attribute)
+
+    for attr_id in attributes:
+        attribute_value_info = models.execute_kw(
+            db,
+            uid,
+            password,
+            objects.get("attribute_value"),
+            actions.get("s_read"),
+            [[["pav_attribute_line_ids", "=", attr_id]]],
+        )
+
+        attribute_name = attribute_value_info[0].get("attribute_id")[1]
+
+        if atts.__contains__(attribute_name):
+            atts.pop(attribute_name)
+
+    length = len(attrs)
+
+    if length <= 0:
+        return False
+
+    product_attributes = []
+
+    for attr_name, value in atts.items():
+        attr_creat = attribute_creation(objects, actions, attr_name, value)
+        product_attributes.append(attr_creat)
+
+    return product_attributes
+
+
+def attribute_creation(objects, actions, attribute_name, value):
+    attribute_search = models.execute_kw(
+        db,
+        uid,
+        password,
+        objects.get("attribute"),
+        actions.get("s_read"),
+        [[["name", "=", attribute_name]]],
+        {"fields": ["id"]},
+    )
+
+    attribute_id = attribute_search[0].get("id")
+
+    attribute_value = models.execute_kw(
+        db,
+        uid,
+        password,
+        objects.get("attribute_value"),
+        actions.get("s_read"),
+        [[["name", "=", value]]],
+        {"fields": ["id"]},
+    )
+
+    if attribute_value:
+        attribute_value_id = attribute_value[0].get("id")
+    else:
+        attribute_value_id = models.execute_kw(
+            db,
+            uid,
+            password,
+            objects.get("attribute_value"),
+            actions.get("create"),
+            [
+                {
+                    "attribute_id": attribute_id,
+                    "name": value,
+                }
+            ],
+        )
+
+    attribute = (
+        0,
+        0,
+        {
+            "attribute_id": attribute_id,
+            "value_ids": [(4, attribute_value_id)],
+        },
+    )
+
+    return attribute
 
 
 def sys_get_image(producto):
@@ -27,7 +138,135 @@ def sys_get_image(producto):
     return final_image
 
 
-def sys_creation():
-    products = 10
+def sys_created(objects, actions, sku):
+    found = False
+    find = models.execute_kw(
+        db,
+        uid,
+        password,
+        objects.get("products"),
+        actions.get("search"),
+        [[["default_code", "=", sku]]],
+    )
 
-    return products
+    if find:
+        found = True
+
+    return found, find
+
+
+def sys_creation(catalogue):
+    success = 0
+    objects = {  # Modelos disponibles en Odoo
+        "products": "product.product",
+        "product": "product.template",
+        "product_category": "product.public.category",
+        "attribute": "product.attribute",
+        "attribute_value": "product.attribute.value",
+        "stock": "stock.quant",
+        "intern": "stock.picking",
+        "scrap": "stock.scrap",
+    }
+
+    actions = {  # Acciones disponibles en Odoo
+        "search": "search",
+        "read": "read",
+        "s_read": "search_read",
+        "write": "write",
+        "create": "create",
+        "validate": "action_validate",
+        "button": "button_validate",
+    }
+
+    published = False
+
+    for product in catalogue:
+        name = product.get("titulo")
+        brand = product.get("marca")
+        sku = product.get("modelo")
+        product_created = sys_created(objects, actions, sku)
+        precios = product.get("precios")
+        conversion = float(exchange)
+
+        if precios:  # * Precio en dolares por conversión
+            costo = float(precios.get("precio_descuento"))
+            precio = float(precios.get("precio_lista"))
+
+        if not precios:
+            costo = 0
+            precio = 0
+
+        costo *= conversion
+        precio *= conversion
+        final_image = sys_get_image(product)
+
+        product_template = {
+            "is_published": published,
+            "name": name,
+            "default_code": sku,
+            # "public_categ_ids": [(6, 0, [prod_category])],
+            "sale_ok": True,
+            "purchase_ok": True,
+            "detailed_type": "product",  # Solo netdata
+            "list_price": precio,
+            "standard_price": costo,
+            "description_purchase": "Producto Syscom",
+            "description_sale": f"Producto: {name} \nMarca: {brand}",
+            # "weight": product.get("peso"),
+            # "volume": record.get("volume"),
+            "image_1920": final_image,  # Encode base64
+            "allow_out_of_stock_order": False,
+            "show_availability": True,
+            "available_threshold": 20,
+            # "attribute_line_ids": attributes,
+            # "unspsc_code_id": record.get("sat_code"),
+        }
+
+        if final_image == False:
+            product_template.pop("image_1920")
+
+        if product_created[0]:
+            prod_id = product_created[1][0]
+            write = models.execute_kw(
+                db,
+                uid,
+                password,
+                objects.get("products"),
+                actions.get("write"),
+                [[prod_id], product_template],
+            )
+
+            success += 1
+
+        else:
+            create = models.execute_kw(
+                db,
+                uid,
+                password,
+                objects.get("product"),
+                actions.get("create"),
+                [product_template],
+            )
+
+            success += 1
+
+    return success
+
+
+def sys_main():
+    print("Iniciando creación y/o actualización de productos")
+    success = 0
+    errors = 0
+    # products_list = []
+
+    for brand in brands:
+        brand_id = brand.get("id")
+        catalogue = sysc.sys_catalogue(brand_id)
+        quantity = catalogue.get("cantidad")
+
+        if quantity > 0:
+            products = catalogue.get("productos")
+            success += sys_creation(products)
+
+    print(f"Exitos: {success} - Errores: {errors}", end="\r")
+    print("Operación en NetDataSolutions exitosa")
