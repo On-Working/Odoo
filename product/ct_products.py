@@ -7,7 +7,8 @@ import re
 import odoo
 import ct
 
-db = config("odoo_db", default="")
+db = config("odoo_test_db", default="")
+# db = config("odoo_db", default="")
 odo = odoo.odoo_connect(db)
 
 uid = odo[0]
@@ -18,8 +19,8 @@ catalogue = ct.ct_catalogue()
 stock = ct.ct_stock()
 
 
-def ct_get_image(producto):
-    image = producto.get("imagen")
+def ct_get_image(product):
+    image = product.get("imagen")
 
     url = validators.url(image)
 
@@ -34,21 +35,14 @@ def ct_get_image(producto):
     return final_image
 
 
-def ct_created(objects, actions, sku):
-    found = False
-    find = models.execute_kw(
-        db,
-        uid,
-        password,
-        objects.get("products"),
-        actions.get("search"),
-        [[["default_code", "=", sku]]],
-    )
+def ct_stock(producto):
+    stock = producto.get("existencia")
+    cun_stock = 0
 
-    if find:
-        found = True
+    if stock.__contains__("CUN"):
+        cun_stock = stock.get("CUN")
 
-    return found, find
+    return cun_stock
 
 
 def ct_price(product):
@@ -73,8 +67,177 @@ def ct_price(product):
     return costo, precio
 
 
+def ct_stock_created(objects, actions, id, qty):
+    find = models.execute_kw(
+        db,
+        uid,
+        password,
+        objects.get("stock"),
+        actions.get("s_read"),
+        [[["location_id", "=", 418], ["product_id", "=", id]]],
+        {"fields": ["quantity"]},
+    )
+
+    if not find:
+        creation = ct_stock_creation(objects, actions, id, qty)
+        return creation
+
+    stock = find[0]["quantity"]
+
+    dif = qty - stock
+
+    if dif == 0:
+        return
+
+    if dif < 0:
+        done = stock - qty
+
+        scrap_order = {  # * Creacion de orden de desecho
+            "product_id": id,
+            "scrap_qty": done,
+            "location_id": 418,  # Ecommerce CT
+            "scrap_location_id": 352,  # Ecommerce Scrap
+        }
+
+        # * Orden de desecho
+        scrap_creation = models.execute_kw(
+            db,
+            uid,
+            password,
+            objects.get("scrap"),
+            actions.get("create"),
+            [scrap_order],
+        )
+
+        # * Validación
+        scrap_confirmation = models.execute_kw(
+            db,
+            uid,
+            password,
+            objects.get("scrap"),
+            actions.get("validate"),
+            [scrap_creation],
+            {},
+        )
+
+        return scrap_confirmation
+
+    else:
+        picking_order = {  # * Creacion de orden de inventario
+            "partner_id": 206,  # 10 Jorge # 206 Tecnosinergia
+            "picking_type_id": 303,  # Ecommerce:interno Tipo recibo
+            "move_type": "direct",
+            "immediate_transfer": True,
+            "priority": "1",
+            "location_id": 418,  # 418 CT
+            "location_dest_id": 336,  # 336 Ecommerce
+            "move_ids": [
+                (
+                    0,
+                    0,
+                    {
+                        "name": "Actual stock",
+                        "location_id": 351,  # Tecnosinergia
+                        "location_dest_id": 336,  # Ecommerce
+                        "product_id": id,
+                        "product_uom": 1,
+                        "quantity_done": dif,
+                    },
+                )
+            ],
+        }
+
+        # * Creation
+        picking_creation = models.execute_kw(
+            db,
+            uid,
+            password,
+            objects.get("intern"),
+            actions.get("create"),
+            [picking_order],
+        )
+
+        picking_confirmation = models.execute_kw(
+            db,
+            uid,
+            password,
+            objects.get("intern"),
+            actions.get("button"),
+            [picking_creation],
+        )
+
+        return picking_confirmation
+
+
+def ct_stock_creation(objects, actions, id, qty):
+    if qty == 0:
+        return
+
+    picking_order = {  # * Creacion de orden de inventario
+        "partner_id": 887,  # 887 CT
+        "picking_type_id": 303,  # Ecommerce: transferencias internas
+        "move_type": "direct",
+        "immediate_transfer": True,
+        "priority": "1",
+        "location_id": 3,  # 3 Virtual Locations
+        "location_dest_id": 418,  # 418 Ecommerce - CT
+        "move_ids": [
+            (
+                0,
+                0,
+                {
+                    "name": "Actual stock",
+                    "location_id": 3,  # Virtual Locations
+                    "location_dest_id": 418,  # CT
+                    "product_id": id,
+                    "product_uom": 1,
+                    "quantity_done": qty,
+                },
+            )
+        ],
+    }
+
+    # * Creation
+    picking_creation = models.execute_kw(
+        db,
+        uid,
+        password,
+        objects.get("intern"),
+        actions.get("create"),
+        [picking_order],
+    )
+
+    picking_confirmation = models.execute_kw(
+        db,
+        uid,
+        password,
+        objects.get("intern"),
+        actions.get("button"),
+        [picking_creation],
+    )
+
+    return picking_confirmation
+
+
+def ct_created(objects, actions, sku):
+    found = False
+    find = models.execute_kw(
+        db,
+        uid,
+        password,
+        objects.get("products"),
+        actions.get("search"),
+        [[["default_code", "=", sku]]],
+    )
+
+    if find:
+        found = True
+
+    return found, find
+
+
 def ct_creation():
-    print("Iniciando creación y/o actualización de productos")
+    print("Iniciando creación y/o actualización de productos - CT")
     products = 0
     errors = 0
 
@@ -100,15 +263,17 @@ def ct_creation():
     }
 
     for product in catalogue:
-        published = True
         sku = product.get("clave")
-
-        # * Funciones
         final_image = ct_get_image(product)
         product_created = ct_created(objects, actions, sku)
         prices = ct_price(product)
+        qty = ct_stock(product)
         worth = prices[0]
         price = prices[1]
+        published = True
+
+        if qty <= 0:
+            published = False
 
         product_template = {
             "is_published": published,
@@ -118,8 +283,8 @@ def ct_creation():
             "sale_ok": True,
             "purchase_ok": True,
             "detailed_type": "product",  # Solo netdata
-            "list_price": worth,
-            "standard_price": price,
+            "list_price": price,
+            "standard_price": worth,
             "description_purchase": "Producto CT",
             "description_sale": product.get("descripcion_corta"),
             # "weight": record.get("weight"),
@@ -146,6 +311,8 @@ def ct_creation():
                 [[prod_id], product_template],
             )
 
+            stock = ct_stock_created(objects, actions, prod_id, qty)
+
             products += 1
 
         else:
@@ -158,8 +325,13 @@ def ct_creation():
                 [product_template],
             )
 
+            try:
+                stock = ct_stock_creation(objects, actions, create, qty)
+            except:
+                errors += 1
+
             products += 1
 
         print(f"Exitos: {products} - Errores: {errors}", end="\r")
 
-    print("Operación en NetDataSolutions exitosa")
+    print("Operación CT en NetDataSolutions exitosa")
