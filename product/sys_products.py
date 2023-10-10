@@ -7,7 +7,8 @@ import re
 import odoo
 import sysc
 
-db = config("odoo_db", default="")
+db = config("odoo_test_db", default="")
+# db = config("odoo_db", default="")
 odo = odoo.odoo_connect(db)
 
 uid = odo[0]
@@ -122,8 +123,8 @@ def attribute_creation(objects, actions, attribute_name, value):
     return attribute
 
 
-def sys_get_image(producto):
-    image = producto.get("img_portada")
+def sys_get_image(product):
+    image = product.get("img_portada")
 
     url = validators.url(image)
 
@@ -136,6 +137,133 @@ def sys_get_image(producto):
     final_image = binary_image.decode("ascii")
 
     return final_image
+
+
+def sys_stock(product):
+    total_stock = product.get("total_existencia")
+    stock = 0
+
+    if total_stock <= 0:
+        return stock
+
+    stock = product.get("existencia")
+    new_stock = 0
+
+    if stock.__contains__("nuevo"):
+        new_stock = stock.get("nuevo")
+
+    return new_stock
+
+
+def ct_stock_created(objects, actions, id, qty):
+    find = models.execute_kw(
+        db,
+        uid,
+        password,
+        objects.get("stock"),
+        actions.get("s_read"),
+        [[["location_id", "=", 419], ["product_id", "=", id]]],
+        {"fields": ["quantity"]},
+    )
+
+    if not find:
+        creation = ct_stock_creation(objects, actions, id, qty)
+        return creation
+
+    stock = find[0]["quantity"]
+
+    dif = qty - stock
+
+    if dif == 0:
+        return
+
+    if dif < 0:
+        done = stock - qty
+
+        scrap_order = {  # * Creacion de orden de desecho
+            "product_id": id,
+            "scrap_qty": done,
+            "location_id": 419,  # Ecommerce Syscom
+            "scrap_location_id": 352,  # Ecommerce Scrap
+        }
+
+        # * Orden de desecho
+        scrap_creation = models.execute_kw(
+            db,
+            uid,
+            password,
+            objects.get("scrap"),
+            actions.get("create"),
+            [scrap_order],
+        )
+
+        # * Validación
+        scrap_confirmation = models.execute_kw(
+            db,
+            uid,
+            password,
+            objects.get("scrap"),
+            actions.get("validate"),
+            [scrap_creation],
+            {},
+        )
+
+        return scrap_confirmation
+
+    else:
+        creation = ct_stock_creation(objects, actions, id, dif)
+
+        return creation
+
+
+def ct_stock_creation(objects, actions, id, qty):
+    if qty == 0:
+        return
+
+    picking_order = {  # * Creacion de orden de inventario
+        "partner_id": 1064,  # 1064 Syscom
+        "picking_type_id": 303,  # Ecommerce: transferencias internas
+        "move_type": "direct",
+        "immediate_transfer": True,
+        "priority": "1",
+        "location_id": 3,  # 3 Virtual Locations
+        "location_dest_id": 419,  # 419 Ecommerce - Syscom
+        "move_ids": [
+            (
+                0,
+                0,
+                {
+                    "name": "Actual stock",
+                    "location_id": 3,  # Virtual Locations
+                    "location_dest_id": 419,  # Syscom
+                    "product_id": id,
+                    "product_uom": 1,
+                    "quantity_done": qty,
+                },
+            )
+        ],
+    }
+
+    # * Creation
+    picking_creation = models.execute_kw(
+        db,
+        uid,
+        password,
+        objects.get("intern"),
+        actions.get("create"),
+        [picking_order],
+    )
+
+    picking_confirmation = models.execute_kw(
+        db,
+        uid,
+        password,
+        objects.get("intern"),
+        actions.get("button"),
+        [picking_creation],
+    )
+
+    return picking_confirmation
 
 
 def sys_created(objects, actions, sku):
@@ -157,6 +285,8 @@ def sys_created(objects, actions, sku):
 
 def sys_creation(catalogue):
     success = 0
+    errors = 0
+
     objects = {  # Modelos disponibles en Odoo
         "products": "product.product",
         "product": "product.template",
@@ -178,15 +308,15 @@ def sys_creation(catalogue):
         "button": "button_validate",
     }
 
-    published = False
-
     for product in catalogue:
+        published = True
         name = product.get("titulo")
         brand = product.get("marca")
         sku = product.get("modelo")
-        product_created = sys_created(objects, actions, sku)
         precios = product.get("precios")
         conversion = float(exchange)
+        product_created = sys_created(objects, actions, sku)
+        qty = sys_stock(product)
 
         if precios:  # * Precio en dolares por conversión
             costo = float(precios.get("precio_descuento"))
@@ -199,6 +329,9 @@ def sys_creation(catalogue):
         costo *= conversion
         precio *= conversion
         final_image = sys_get_image(product)
+
+        if qty <= 0:
+            published = False
 
         product_template = {
             "is_published": published,
@@ -236,6 +369,8 @@ def sys_creation(catalogue):
                 [[prod_id], product_template],
             )
 
+            stock = ct_stock_created(objects, actions, prod_id, qty)
+
             success += 1
 
         else:
@@ -248,13 +383,18 @@ def sys_creation(catalogue):
                 [product_template],
             )
 
+            try:
+                stock = ct_stock_creation(objects, actions, create, qty)
+            except:
+                errors += 1
+
             success += 1
 
-    return success
+    return success, errors
 
 
 def sys_main():
-    print("Iniciando creación y/o actualización de productos")
+    print("Iniciando creación y/o actualización de productos - SYSCOM")
     success = 0
     errors = 0
     # products_list = []
@@ -266,7 +406,9 @@ def sys_main():
 
         if quantity > 0:
             products = catalogue.get("productos")
-            success += sys_creation(products)
+            create = sys_creation(products)
+            success += create[0]
+            errors += create[1]
 
     print(f"Exitos: {success} - Errores: {errors}", end="\r")
-    print("Operación en NetDataSolutions exitosa")
+    print("Operación SYSCOM en NetDataSolutions exitosa")

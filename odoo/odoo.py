@@ -1,8 +1,8 @@
 from decouple import config
 import xmlrpc.client
 
-# url = config("odoo_test_url", default="")
-url = config("odoo_url", default="")
+url = config("odoo_test_url", default="")
+# url = config("odoo_url", default="")
 
 
 def odoo_connect(db):
