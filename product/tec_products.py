@@ -1,13 +1,12 @@
 from decouple import config
 import odoo
-import tech_sinergy
+import tec
 import requests
 import html
 import validators
 import base64
 import re
 
-# db = config("odoo_test_db", default="")
 db = config("odoo_db", default="")
 odo = odoo.odoo_connect(db)
 
@@ -15,13 +14,13 @@ uid = odo[0]
 models = odo[1]
 password = odo[2]
 
-tec = tech_sinergy.tech_api()
+tec = tec.tech_catalogue()
 
 info = tec[0]
 data = tec[1]
 
 
-def get_image(record):
+def tec_get_image(record):
     image = record.get("image")
 
     url = validators.url(image)
@@ -37,7 +36,7 @@ def get_image(record):
     return final_image
 
 
-def desc_format(text):
+def tec_desc_format(text):
     words = text.split()
     formatted_text = ""
 
@@ -56,7 +55,7 @@ def desc_format(text):
     return re.sub(pattern, "", formatted_text.strip())
 
 
-def cat_created(objects, actions, name):
+def tec_cat_created(objects, actions, name):
     found = False
     find = models.execute_kw(
         db,
@@ -73,10 +72,10 @@ def cat_created(objects, actions, name):
     return found, find
 
 
-def cat_creation(objects, actions, record):
+def tec_cat_creation(objects, actions, record):
     name = html.unescape(record.get("category"))
     parent = html.unescape(record.get("parent_subcategory"))
-    created = cat_created(objects, actions, name)
+    created = tec_cat_created(objects, actions, name)
 
     cat_data = {
         "name": name,
@@ -111,19 +110,22 @@ def cat_creation(objects, actions, record):
     return create
 
 
-def stock_created(objects, actions, id, qty):
+def tec_stock_created(objects, actions, id, qty):
+    location_id = 420  # Tecnosinergia
+    scrap_location_id = 352  # Ecommerce Scrap
+
     find = models.execute_kw(
         db,
         uid,
         password,
         objects.get("stock"),
         actions.get("s_read"),
-        [[["location_id", "=", 336], ["product_id", "=", id]]],
+        [[["location_id", "=", location_id], ["product_id", "=", id]]],
         {"fields": ["quantity"]},
     )
 
     if not find:
-        creation = stock_creation(objects, actions, id, qty)
+        creation = tec_stock_creation(objects, actions, id, qty)
         return creation
 
     stock = find[0]["quantity"]
@@ -139,8 +141,8 @@ def stock_created(objects, actions, id, qty):
         scrap_order = {  # * Creacion de orden de desecho
             "product_id": id,
             "scrap_qty": done,
-            "location_id": 336,  # Ecommerce
-            "scrap_location_id": 352,  # Ecommerce Scrap
+            "location_id": location_id,
+            "scrap_location_id": scrap_location_id,
         }
 
         # * Orden de desecho
@@ -167,72 +169,36 @@ def stock_created(objects, actions, id, qty):
         return scrap_confirmation
 
     else:
-        picking_order = {  # * Creacion de orden de inventario
-            "partner_id": 206,  # 10 Jorge # 206 Tecnosinergia
-            "picking_type_id": 303,  # Ecommerce:interno Tipo recibo
-            "move_type": "direct",
-            "immediate_transfer": True,
-            "priority": "1",
-            "location_id": 351,  # 351 Tecnosinergia
-            "location_dest_id": 336,  # 336 Ecommerce
-            "move_ids": [
-                (
-                    0,
-                    0,
-                    {
-                        "name": "Actual stock",
-                        "location_id": 351,  # Tecnosinergia
-                        "location_dest_id": 336,  # Ecommerce
-                        "product_id": id,
-                        "product_uom": 1,
-                        "quantity_done": dif,
-                    },
-                )
-            ],
-        }
+        creation = tec_stock_creation(objects, actions, id, dif)
 
-        # * Creation
-        picking_creation = models.execute_kw(
-            db,
-            uid,
-            password,
-            objects.get("intern"),
-            actions.get("create"),
-            [picking_order],
-        )
-
-        picking_confirmation = models.execute_kw(
-            db,
-            uid,
-            password,
-            objects.get("intern"),
-            actions.get("button"),
-            [picking_creation],
-        )
-
-        return picking_confirmation
+        return creation
 
 
-def stock_creation(objects, actions, id, qty):
+def tec_stock_creation(objects, actions, id, qty):
+    partner_id = 206  # 206 Tecnosinergia
+    picking_type_id = 303  # Ecommerce: Transferencias internas
+    location_id = 3  # 3 Virtual Locations
+    location_dest_id = 420  # 420 Tecnosinergia
+
     if qty == 0:
         return
 
     picking_order = {  # * Creacion de orden de inventario
-        "partner_id": 206,  # 10 Jorge # 206 Tecnosinergia
-        "picking_type_id": 303,  # Ecommerce:interno Tipo recibo
+        "partner_id": partner_id,
+        "picking_type_id": picking_type_id,
         "move_type": "direct",
         "immediate_transfer": True,
         "priority": "1",
-        "location_id": 351,  # 351 Tecnosinergia
-        "location_dest_id": 336,  # 349 Ecommerce
+        "location_id": location_id,
+        "location_dest_id": location_dest_id,
         "move_ids": [
             (
                 0,
                 0,
                 {
                     "name": "Actual stock",
-                    "location_id": 351,  # Tecnosinergia
-                    "location_dest_id": 336,  # Ecommerce
+                    "location_id": location_id,
+                    "location_dest_id": location_dest_id,
                     "product_id": id,
                     "product_uom": 1,
                     "quantity_done": qty,
@@ -263,7 +229,7 @@ def stock_creation(objects, actions, id, qty):
     return picking_confirmation
 
 
-def attribute_created(objects, actions, sku, attrs):
+def tec_attribute_created(objects, actions, sku, attrs):
     atts = attrs
     attributes = []
 
@@ -309,13 +275,13 @@ def attribute_created(objects, actions, sku, attrs):
     product_attributes = []
 
     for attr_name, value in atts.items():
-        attr_creat = attribute_creation(objects, actions, attr_name, value)
+        attr_creat = tec_attribute_creation(objects, actions, attr_name, value)
         product_attributes.append(attr_creat)
 
     return product_attributes
 
 
-def attribute_creation(objects, actions, attribute_name, value):
+def tec_attribute_creation(objects, actions, attribute_name, value):
     attribute_search = models.execute_kw(
         db,
         uid,
@@ -367,7 +333,7 @@ def attribute_creation(objects, actions, attribute_name, value):
     return attribute
 
 
-def product_created(objects, actions, sku):
+def tec_product_created(objects, actions, sku):
     found = False
     find = models.execute_kw(
         db,
@@ -384,8 +350,8 @@ def product_created(objects, actions, sku):
     return found, find
 
 
-def produc_create():
-    print("Iniciando creación y/o actualización de productos")
+def tec_creation():
+    print("Iniciando creación y/o actualización de productos - Tecnosinergia")
     products = 0
     errors = 0
 
@@ -424,17 +390,17 @@ def produc_create():
         clean_description = html.unescape(record.get("description"))
 
         # * Formateo de imagen
-        final_image = get_image(record)
+        final_image = tec_get_image(record)
 
         # * Formateo de textos
-        description = desc_format(clean_description)
+        description = tec_desc_format(clean_description)
 
         # * Verificación de existencia
-        prod_created = product_created(objects, actions, sku)
-        prod_category = cat_creation(objects, actions, record)
+        prod_created = tec_product_created(objects, actions, sku)
+        prod_category = tec_cat_creation(objects, actions, record)
 
         # * Verificación de atributos
-        attributes = attribute_created(objects, actions, sku, attrs)
+        attributes = tec_attribute_created(objects, actions, sku, attrs)
 
         # * Elección de publicación
         if qty <= 0 or category == "Marketing":
@@ -482,7 +448,7 @@ def produc_create():
 
             products += 1
 
-            stock = stock_created(objects, actions, prod_id, qty)
+            stock = tec_stock_created(objects, actions, prod_id, qty)
 
         # * Creación por inexistencia
         else:
@@ -496,7 +462,7 @@ def produc_create():
             )
 
             try:
-                stock = stock_creation(objects, actions, create, qty)
+                stock = tec_stock_creation(objects, actions, create, qty)
             except:
                 errors += 1
 
@@ -504,4 +470,12 @@ def produc_create():
 
         print(f"Exitos: {products} - Errores: {errors}", end="\r")
 
-    print("Operación en NetDataSolutions exitosa")
+    print("Operación Tecnosinergia en NetDataSolutions exitosa")
+
+    return products
+
+
+def tec_main():
+    creation = tec_creation()
+
+    return creation

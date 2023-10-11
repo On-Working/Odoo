@@ -9,7 +9,8 @@ def main():
     local_time = time.strftime(f"{TIME_STR} \n")
     print(f"Inicio de actualización Tecnosinergia: {local_time}", end="\r")
     print("")
-    product.produc_create()
+    tec_products = product.tec_main()
+    print(f"{tec_products} productos actualizados correctamente", end="\r")
     print("")
     local_time = time.strftime(f"{TIME_STR} \n")
     print(f"Ultima actualización Tecnosinergia: {local_time}", end="\r")
@@ -37,7 +38,7 @@ def main():
 if __name__ == "__main__":
     main()
 
-    schedule.every().hour.do(main)
+    schedule.every().day.do(main)
 
     while True:
         schedule.run_pending()
