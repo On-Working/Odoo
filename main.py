@@ -18,12 +18,11 @@ def main():
     local_time = time.strftime(f"{TIME_STR} \n")
     print(f"Inicio de actualización CT: {local_time}", end="\r")
     print("")
-    product.ct_creation()
+    ct_products = product.ct_main()
+    print(f"{ct_products} productos actualizados correctamente", end="\r")
     print("")
-    local_time = time.strftime(f"{TIME_STR} \n")
-    print(
-        f"Ultima actualización CT: {local_time}",
-    )
+    local_time = time.strftime(f"\n{TIME_STR} \n")
+    print(f"Ultima actualización CT: {local_time}", end="\r")
 
     local_time = time.strftime(f"{TIME_STR}")
     print(f"Inicio de actualización Syscom: {local_time}", end="\r")
