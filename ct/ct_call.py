@@ -1,7 +1,6 @@
 from decouple import config
 from ftplib import FTP
 import json
-import requests
 
 url = config("ct_url", default="")  # * Url del API
 
@@ -39,7 +38,3 @@ def ct_catalogue():
     print("Conexión con el FTP de CT exitosa")
     print("Retornando datos: Info, Data \n")
     return productos
-
-
-def ct_stock():
-    print("CT Existencias")
