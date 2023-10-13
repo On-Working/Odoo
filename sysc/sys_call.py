@@ -1,6 +1,4 @@
 from decouple import config
-from ftplib import FTP
-import json
 import requests
 
 url = config("sys_url", default="")  # * Url del API

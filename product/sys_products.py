@@ -1,14 +1,11 @@
 from decouple import config
 import requests
-import html
 import validators
 import base64
-import re
 import odoo
 import sysc
 
 db = config("odoo_test_db", default="")
-# db = config("odoo_db", default="")
 odo = odoo.odoo_connect(db)
 
 uid = odo[0]
@@ -156,13 +153,16 @@ def sys_stock(product):
 
 
 def ct_stock_created(objects, actions, id, qty):
+    location_id = 419  # Syscom
+    scrap_location_id = 352  # Ecommerce Scrap
+
     find = models.execute_kw(
         db,
         uid,
         password,
         objects.get("stock"),
         actions.get("s_read"),
-        [[["location_id", "=", 419], ["product_id", "=", id]]],
+        [[["location_id", "=", location_id], ["product_id", "=", id]]],
         {"fields": ["quantity"]},
     )
 
@@ -183,8 +183,8 @@ def ct_stock_created(objects, actions, id, qty):
         scrap_order = {  # * Creacion de orden de desecho
             "product_id": id,
             "scrap_qty": done,
-            "location_id": 419,  # Ecommerce Syscom
-            "scrap_location_id": 352,  # Ecommerce Scrap
+            "location_id": location_id,
+            "scrap_location_id": scrap_location_id,
         }
 
         # * Orden de desecho
@@ -217,25 +217,30 @@ def ct_stock_created(objects, actions, id, qty):
 
 
 def ct_stock_creation(objects, actions, id, qty):
+    partner_id = 1064  # 1064 Syscom
+    picking_type_id = 303  # Ecommerce: Transferencias internas
+    location_id = 3  # 3 Virtual Locations
+    location_dest_id = 419  # 419 Syscom
+
     if qty == 0:
         return
 
     picking_order = {  # * Creacion de orden de inventario
-        "partner_id": 1064,  # 1064 Syscom
-        "picking_type_id": 303,  # Ecommerce: transferencias internas
+        "partner_id": partner_id,
+        "picking_type_id": picking_type_id,
         "move_type": "direct",
         "immediate_transfer": True,
         "priority": "1",
-        "location_id": 3,  # 3 Virtual Locations
-        "location_dest_id": 419,  # 419 Ecommerce - Syscom
+        "location_id": location_id,
+        "location_dest_id": location_dest_id,
         "move_ids": [
             (
                 0,
                 0,
                 {
                     "name": "Actual stock",
-                    "location_id": 3,  # Virtual Locations
-                    "location_dest_id": 419,  # Syscom
+                    "location_id": location_id,
+                    "location_dest_id": location_dest_id,
                     "product_id": id,
                     "product_uom": 1,
                     "quantity_done": qty,
@@ -360,7 +365,7 @@ def sys_creation(catalogue):
 
         if product_created[0]:
             prod_id = product_created[1][0]
-            write = models.execute_kw(
+            models.execute_kw(
                 db,
                 uid,
                 password,
@@ -369,7 +374,7 @@ def sys_creation(catalogue):
                 [[prod_id], product_template],
             )
 
-            stock = ct_stock_created(objects, actions, prod_id, qty)
+            ct_stock_created(objects, actions, prod_id, qty)
 
             success += 1
 
@@ -384,9 +389,10 @@ def sys_creation(catalogue):
             )
 
             try:
-                stock = ct_stock_creation(objects, actions, create, qty)
-            except:
+                ct_stock_creation(objects, actions, create, qty)
+            except Exception as e:
                 errors += 1
+                del e
 
             success += 1
 
@@ -397,7 +403,6 @@ def sys_main():
     print("Iniciando creación y/o actualización de productos - SYSCOM")
     success = 0
     errors = 0
-    # products_list = []
 
     for brand in brands:
         brand_id = brand.get("id")
