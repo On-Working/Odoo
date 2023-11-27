@@ -1,18 +1,169 @@
 from decouple import config
+import ct
 import requests
 import validators
 import base64
-import odoo
-import ct
-
-db = config("odoo_test_db", default="")
-odo = odoo.odoo_connect(db)
-
-uid = odo[0]
-models = odo[1]
-password = odo[2]
+import time
+import odoo as netdata
 
 catalogue = ct.ct_catalogue()
+
+
+def unspsc_verification(odoo, objects, actions, product):
+    uid, models, db, password = odoo
+    code = product.get("sat_key")
+    sat_id = "01010101"
+
+    unspsc = models.execute_kw(
+        db,
+        uid,
+        password,
+        objects.get("unspsc"),
+        actions.get("s_read"),
+        [[["code", "=", code]]],
+        {"fields": ["code", "name"]},
+    )
+
+    if not unspsc:
+        return sat_id
+
+    sat_id = unspsc[0].get("id")
+
+    return sat_id
+
+
+def attribute_created(odoo, objects, actions, sku, data):
+    uid, models, db, password = odoo
+    attrs = data
+    attributes = []
+    lines = False
+
+    product_data = models.execute_kw(
+        db,
+        uid,
+        password,
+        objects.get("product"),
+        actions.get("s_read"),
+        [[["default_code", "=", sku]]],
+        {"fields": ["attribute_line_ids"]},
+    )
+
+    if product_data:
+        lines = product_data[0].get("attribute_line_ids")
+
+    # ? If not product lines, then do both
+    if not lines:
+        for attr in attrs:
+            value = attrs.get(attr)
+
+            if value == "":
+                continue
+
+            create = attribute_creation(odoo, objects, actions, attr, value)
+            attributes.append(create)
+
+        return attributes
+
+    # ? Depends on how many lines, do one or more
+    for line in lines:
+        attribute_value_info = models.execute_kw(
+            db,
+            uid,
+            password,
+            objects.get("attribute_value"),
+            actions.get("s_read"),
+            [[["pav_attribute_line_ids", "=", line]]],
+        )
+
+        attribute_name = attribute_value_info[0].get("attribute_id")[1]
+
+        if attrs.__contains__(attribute_name):
+            attrs.pop(attribute_name)
+
+    length = len(attrs)
+
+    if length <= 0:
+        return False
+
+    for attr in attrs:
+        value = attrs.get(attr)
+
+        if value == "":
+            continue
+
+        create = attribute_creation(odoo, objects, actions, attr, value)
+
+        attributes.append(create)
+
+    return attributes
+
+
+def attribute_creation(odoo, objects, actions, attribute, value):
+    uid, models, db, password = odoo
+    attr_id = False
+    attr_value = False
+
+    # ? Reading lines from products
+    attribute_search = models.execute_kw(
+        db,
+        uid,
+        password,
+        objects.get("attribute"),
+        actions.get("s_read"),
+        [[["name", "=", attribute]]],
+        {"fields": ["name"]},
+    )
+
+    attribute_id = attribute_search[0].get("id")
+
+    # ? Reading attribute id from attribute value
+    attribute_values = models.execute_kw(
+        db,
+        uid,
+        password,
+        objects.get("attribute_value"),
+        actions.get("s_read"),
+        [[["name", "=", value]]],
+        {"fields": ["attribute_id"]},
+    )
+
+    # ? Matching all values on attributes to get the one
+    for attribute_value in attribute_values:
+        attr_id = attribute_value.get("attribute_id")[0]
+        if attribute_id == attr_id:
+            attr_value = attribute_value
+
+    if attr_value:
+        attr_id = attr_value.get("attribute_id")[0]
+
+    # ? Matching original attribute id to value attribute id
+    if attribute_id == attr_id:
+        attribute_value_id = attr_value.get("id")
+    else:
+        attribute_value_id = models.execute_kw(
+            db,
+            uid,
+            password,
+            objects.get("attribute_value"),
+            actions.get("create"),
+            [
+                {
+                    "attribute_id": attribute_id,
+                    "name": value,
+                }
+            ],
+        )
+
+    attribute = (
+        0,
+        0,
+        {
+            "attribute_id": attribute_id,
+            "value_ids": [(4, attribute_value_id)],
+        },
+    )
+
+    return attribute
 
 
 def ct_get_image(product):
@@ -21,9 +172,14 @@ def ct_get_image(product):
     url = validators.url(image)
 
     if not url:  # * Validación de la url
+        image = config("odoo_def_img", default="")
+
+    try:
+        get_image = requests.get(image)
+    except Exception as e:
+        del e
         return False
 
-    get_image = requests.get(image)
     data_image = get_image.content
     binary_image = base64.b64encode(data_image)
     final_image = binary_image.decode("ascii")
@@ -63,7 +219,25 @@ def ct_price(product):
     return costo, precio
 
 
-def ct_stock_created(objects, actions, id, qty):
+def ct_specs(product):
+    all_specs = ""
+    specs = product.get("especificaciones")
+
+    if specs == [] or specs == None:
+        return all_specs
+
+    for spec in specs:
+        variety = spec.get("tipo")
+        value = spec.get("valor")
+
+        info = f"{variety}: {value} \n"
+        all_specs += info
+
+    return all_specs
+
+
+def ct_stock_created(odoo, objects, actions, id, qty):
+    uid, models, db, password = odoo
     location_id = 418  # CT
     scrap_location_id = 352  # Ecommerce Scrap
 
@@ -78,7 +252,7 @@ def ct_stock_created(objects, actions, id, qty):
     )
 
     if not find:
-        creation = ct_stock_creation(objects, actions, id, qty)
+        creation = ct_stock_creation(odoo, objects, actions, id, qty)
         return creation
 
     stock = find[0]["quantity"]
@@ -122,12 +296,13 @@ def ct_stock_created(objects, actions, id, qty):
         return scrap_confirmation
 
     else:
-        creation = ct_stock_creation(objects, actions, id, dif)
+        creation = ct_stock_creation(odoo, objects, actions, id, dif)
 
         return creation
 
 
-def ct_stock_creation(objects, actions, id, qty):
+def ct_stock_creation(odoo, objects, actions, id, qty):
+    uid, models, db, password = odoo
     partner_id = 887  # 887 CT
     picking_type_id = 303  # Ecommerce: Transferencias internas
     location_id = 3  # 3 Virtual Locations
@@ -182,7 +357,8 @@ def ct_stock_creation(objects, actions, id, qty):
     return picking_confirmation
 
 
-def ct_created(objects, actions, sku):
+def ct_created(odoo, objects, actions, sku):
+    uid, models, db, password = odoo
     found = False
     find = models.execute_kw(
         db,
@@ -199,10 +375,15 @@ def ct_created(objects, actions, sku):
     return found, find
 
 
-def ct_creation():
+def ct_creation(odoo):
     print("Iniciando creación y/o actualización de productos - CT")
-    products = 0
+    uid, models, db, password = odoo
+    total = 0
+    success = 0
     errors = 0
+    no_stock = (
+        "Por el momento no contamos con este producto.\n¡Comunícate con nosotros!"
+    )
 
     objects = {  # Modelos disponibles en Odoo
         "products": "product.product",
@@ -213,6 +394,7 @@ def ct_creation():
         "stock": "stock.quant",
         "intern": "stock.picking",
         "scrap": "stock.scrap",
+        "unspsc": "product.unspsc.code",
     }
 
     actions = {  # Acciones disponibles en Odoo
@@ -226,14 +408,37 @@ def ct_creation():
     }
 
     for product in catalogue:
+        if total == 2000:
+            odoo = netdata.odoo_ct_dos()
+            uid, models, db, password = odoo
+
+        if total == 4000:
+            odoo = netdata.odoo_ct_tres()
+            uid, models, db, password = odoo
+
+        if total == 6000:
+            odoo = netdata.odoo_ct_cuatro()
+            uid, models, db, password = odoo
+
+        if total == 8000:
+            odoo = netdata.odoo_ct_cinco()
+            uid, models, db, password = odoo
+
+        published = True
         sku = product.get("clave")
+        desc = product.get("descripcion_corta")
         final_image = ct_get_image(product)
-        product_created = ct_created(objects, actions, sku)
         prices = ct_price(product)
         qty = ct_stock(product)
+        specs = ct_specs(product)
         worth = prices[0]
         price = prices[1]
-        published = True
+        brand = product.get("marca")
+        cap_brand = brand.capitalize()
+        category = product.get("categoria")
+        attrs = {"Marca": cap_brand, "Categoría": category}
+        product_created = ct_created(odoo, objects, actions, sku)
+        attributes = attribute_created(odoo, objects, actions, sku, attrs)
 
         if qty <= 0:
             published = False
@@ -249,19 +454,24 @@ def ct_creation():
             "list_price": price,
             "standard_price": worth,
             "description_purchase": "Producto CT",
-            "description_sale": product.get("descripcion_corta"),
+            "description_sale": f"{desc} \n\n{specs}",
             # "weight": record.get("weight"),
             # "volume": record.get("volume"),
             "image_1920": final_image,
             "allow_out_of_stock_order": False,
             "show_availability": True,
             "available_threshold": 20,
-            # "attribute_line_ids": attributes, # Creación de atributos
+            "tracking": "none",
+            "out_of_stock_message": no_stock,
+            "attribute_line_ids": attributes,  # Creación de atributos
             # "unspsc_code_id": record.get("sat_code"), # Envio de codigo sat
         }
 
         if final_image == False:
             product_template.pop("image_1920")
+
+        if attributes == False or attributes == "":
+            product_template.pop("attribute_line_ids")
 
         if product_created[0]:
             prod_id = product_created[1][0]
@@ -274,9 +484,10 @@ def ct_creation():
                 [[prod_id], product_template],
             )
 
-            ct_stock_created(objects, actions, prod_id, qty)
+            ct_stock_created(odoo, objects, actions, prod_id, qty)
 
-            products += 1
+            success += 1
+            total += 1
 
         else:
             create = models.execute_kw(
@@ -289,21 +500,25 @@ def ct_creation():
             )
 
             try:
-                ct_stock_creation(objects, actions, create, qty)
+                time.sleep(1)
+                ct_stock_creation(odoo, objects, actions, create, qty)
             except Exception as e:
                 errors += 1
+                total += 1
                 del e
 
-            products += 1
+            success += 1
+            total += 1
 
-        print(f"Exitos: {products} - Errores: {errors}", end="\r")
+        print(f"Exitos: {success} - Errores: {errors}", end="\r")
+        time.sleep(1)
 
     print("Operación CT en NetDataSolutions exitosa")
 
-    return products
+    return success, errors
 
 
-def ct_main():
-    creation = ct_creation()
+def ct_main(odoo):
+    creation = ct_creation(odoo)
 
     return creation
