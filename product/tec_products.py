@@ -1,43 +1,55 @@
 from decouple import config
-import odoo
-import tech_sinergy
+from PIL import Image
+from io import BytesIO
+import tec
 import requests
 import html
 import validators
 import base64
 import re
+import time
+import odoo as netdata
 
-# db = config("odoo_test_db", default="")
-db = config("odoo_db", default="")
-odo = odoo.odoo_connect(db)
-
-uid = odo[0]
-models = odo[1]
-password = odo[2]
-
-tec = tech_sinergy.tech_api()
+tec = tec.tech_catalogue()
 
 info = tec[0]
 data = tec[1]
 
 
-def get_image(record):
+def tec_get_image(record):
     image = record.get("image")
 
     url = validators.url(image)
 
     if not url:  # * Validación de la url
+        image = config("odoo_def_img", default="")
+
+    try:
+        get_image = requests.get(image)
+    except Exception as e:
+        del e
         return False
 
-    get_image = requests.get(image)
     data_image = get_image.content
+    img = Image.open(BytesIO(data_image))
+    img_size = img.size
+    x, y = img_size
+    if x or y > 5000:
+        nx = x / 2
+        ny = y / 2
+        nsize = (round(nx), round(ny))
+        nimage = img.resize(nsize)
+        buffer = BytesIO()
+        nimage.save(buffer, format="PNG")
+        data_image = buffer.getvalue()
+
     binary_image = base64.b64encode(data_image)
     final_image = binary_image.decode("ascii")
 
     return final_image
 
 
-def desc_format(text):
+def tec_desc_format(text):
     words = text.split()
     formatted_text = ""
 
@@ -56,7 +68,8 @@ def desc_format(text):
     return re.sub(pattern, "", formatted_text.strip())
 
 
-def cat_created(objects, actions, name):
+def tec_cat_created(odoo, objects, actions, name):
+    uid, models, db, password = odoo
     found = False
     find = models.execute_kw(
         db,
@@ -73,22 +86,23 @@ def cat_created(objects, actions, name):
     return found, find
 
 
-def cat_creation(objects, actions, record):
+def tec_cat_creation(odoo, objects, actions, record):
+    uid, models, db, password = odoo
     name = html.unescape(record.get("category"))
-    parent = html.unescape(record.get("parent_subcategory"))
-    created = cat_created(objects, actions, name)
+    # parent = html.unescape(record.get("parent_subcategory"))
+    created = tec_cat_created(odoo, objects, actions, name)
 
     cat_data = {
         "name": name,
-        "parent_id": parent,
+        # "parent_id": parent,
         "website_description": name,
     }
 
-    if name == parent:
-        cat_data.pop("parent_id")
+    # if name == parent:
+    #     cat_data.pop("parent_id")
 
     if created[0]:
-        write = models.execute_kw(
+        models.execute_kw(
             db,
             uid,
             password,
@@ -111,19 +125,23 @@ def cat_creation(objects, actions, record):
     return create
 
 
-def stock_created(objects, actions, id, qty):
+def tec_stock_created(odoo, objects, actions, id, qty):
+    uid, models, db, password = odoo
+    location_id = 420  # Tecnosinergia
+    scrap_location_id = 352  # Ecommerce Scrap
+
     find = models.execute_kw(
         db,
         uid,
         password,
         objects.get("stock"),
         actions.get("s_read"),
-        [[["location_id", "=", 336], ["product_id", "=", id]]],
+        [[["location_id", "=", location_id], ["product_id", "=", id]]],
         {"fields": ["quantity"]},
     )
 
     if not find:
-        creation = stock_creation(objects, actions, id, qty)
+        creation = tec_stock_creation(odoo, objects, actions, id, qty)
         return creation
 
     stock = find[0]["quantity"]
@@ -139,8 +157,8 @@ def stock_created(objects, actions, id, qty):
         scrap_order = {  # * Creacion de orden de desecho
             "product_id": id,
             "scrap_qty": done,
-            "location_id": 336,  # Ecommerce
-            "scrap_location_id": 352,  # Ecommerce Scrap
+            "location_id": location_id,
+            "scrap_location_id": scrap_location_id,
         }
 
         # * Orden de desecho
@@ -167,72 +185,37 @@ def stock_created(objects, actions, id, qty):
         return scrap_confirmation
 
     else:
-        picking_order = {  # * Creacion de orden de inventario
-            "partner_id": 206,  # 10 Jorge # 206 Tecnosinergia
-            "picking_type_id": 303,  # Ecommerce:interno Tipo recibo
-            "move_type": "direct",
-            "immediate_transfer": True,
-            "priority": "1",
-            "location_id": 351,  # 351 Tecnosinergia
-            "location_dest_id": 336,  # 336 Ecommerce
-            "move_ids": [
-                (
-                    0,
-                    0,
-                    {
-                        "name": "Actual stock",
-                        "location_id": 351,  # Tecnosinergia
-                        "location_dest_id": 336,  # Ecommerce
-                        "product_id": id,
-                        "product_uom": 1,
-                        "quantity_done": dif,
-                    },
-                )
-            ],
-        }
+        creation = tec_stock_creation(odoo, objects, actions, id, dif)
 
-        # * Creation
-        picking_creation = models.execute_kw(
-            db,
-            uid,
-            password,
-            objects.get("intern"),
-            actions.get("create"),
-            [picking_order],
-        )
-
-        picking_confirmation = models.execute_kw(
-            db,
-            uid,
-            password,
-            objects.get("intern"),
-            actions.get("button"),
-            [picking_creation],
-        )
-
-        return picking_confirmation
+        return creation
 
 
-def stock_creation(objects, actions, id, qty):
+def tec_stock_creation(odoo, objects, actions, id, qty):
+    uid, models, db, password = odoo
+    partner_id = 206  # 206 Tecnosinergia
+    picking_type_id = 303  # Ecommerce: Transferencias internas
+    location_id = 3  # 3 Virtual Locations
+    location_dest_id = 420  # 420 Tecnosinergia
+
     if qty == 0:
         return
 
     picking_order = {  # * Creacion de orden de inventario
-        "partner_id": 206,  # 10 Jorge # 206 Tecnosinergia
-        "picking_type_id": 303,  # Ecommerce:interno Tipo recibo
+        "partner_id": partner_id,
+        "picking_type_id": picking_type_id,
         "move_type": "direct",
         "immediate_transfer": True,
         "priority": "1",
-        "location_id": 351,  # 351 Tecnosinergia
-        "location_dest_id": 336,  # 349 Ecommerce
+        "location_id": location_id,
+        "location_dest_id": location_dest_id,
         "move_ids": [
             (
                 0,
                 0,
                 {
                     "name": "Actual stock",
-                    "location_id": 351,  # Tecnosinergia
-                    "location_dest_id": 336,  # Ecommerce
+                    "location_id": location_id,
+                    "location_dest_id": location_dest_id,
                     "product_id": id,
                     "product_uom": 1,
                     "quantity_done": qty,
@@ -263,83 +246,113 @@ def stock_creation(objects, actions, id, qty):
     return picking_confirmation
 
 
-def attribute_created(objects, actions, sku, attrs):
-    atts = attrs
+def attribute_created(odoo, objects, actions, sku, data):
+    uid, models, db, password = odoo
+    attrs = data
     attributes = []
+    lines = False
 
     product_data = models.execute_kw(
         db,
         uid,
         password,
-        objects.get("product_template"),
+        objects.get("product"),
         actions.get("s_read"),
         [[["default_code", "=", sku]]],
         {"fields": ["attribute_line_ids"]},
     )
 
-    if not product_data:
-        print(sku)
-        return False
+    if product_data:
+        lines = product_data[0].get("attribute_line_ids")
 
-    attribute_pavs = product_data[0].get("attribute_line_ids")
+    # ? If not product lines, then do both
+    if not lines:
+        for attr in attrs:
+            value = attrs.get(attr)
 
-    for attribute in attribute_pavs:
-        attributes.append(attribute)
+            if value == "":
+                continue
 
-    for attr_id in attributes:
+            create = attribute_creation(odoo, objects, actions, attr, value)
+            attributes.append(create)
+
+        return attributes
+
+    # ? Depends on how many lines, do one or more
+    for line in lines:
         attribute_value_info = models.execute_kw(
             db,
             uid,
             password,
             objects.get("attribute_value"),
             actions.get("s_read"),
-            [[["pav_attribute_line_ids", "=", attr_id]]],
+            [[["pav_attribute_line_ids", "=", line]]],
         )
 
         attribute_name = attribute_value_info[0].get("attribute_id")[1]
 
-        if atts.__contains__(attribute_name):
-            atts.pop(attribute_name)
+        if attrs.__contains__(attribute_name):
+            attrs.pop(attribute_name)
 
     length = len(attrs)
 
     if length <= 0:
         return False
 
-    product_attributes = []
+    for attr in attrs:
+        value = attrs.get(attr)
 
-    for attr_name, value in atts.items():
-        attr_creat = attribute_creation(objects, actions, attr_name, value)
-        product_attributes.append(attr_creat)
+        if value == "":
+            continue
 
-    return product_attributes
+        create = attribute_creation(odoo, objects, actions, attr, value)
+
+        attributes.append(create)
+
+    return attributes
 
 
-def attribute_creation(objects, actions, attribute_name, value):
+def attribute_creation(odoo, objects, actions, attribute, value):
+    uid, models, db, password = odoo
+    attr_id = False
+    attr_value = False
+
+    # ? Reading lines from products
     attribute_search = models.execute_kw(
         db,
         uid,
         password,
         objects.get("attribute"),
         actions.get("s_read"),
-        [[["name", "=", attribute_name]]],
-        {"fields": ["id"]},
+        [[["name", "=", attribute]]],
+        {"fields": ["name"]},
     )
 
     attribute_id = attribute_search[0].get("id")
 
-    attribute_value = models.execute_kw(
+    # ? Reading attribute id from attribute value
+    attribute_values = models.execute_kw(
         db,
         uid,
         password,
         objects.get("attribute_value"),
         actions.get("s_read"),
         [[["name", "=", value]]],
-        {"fields": ["id"]},
+        {"fields": ["attribute_id"]},
     )
 
-    if attribute_value:
-        attribute_value_id = attribute_value[0].get("id")
+    # ? Matching all values on attributes to get the one
+    for attribute_value in attribute_values:
+        attr_id = attribute_value.get("attribute_id")[0]
+        if attribute_id == attr_id:
+            attr_value = attribute_value
+
+    if attr_value:
+        attr_id = attr_value.get("attribute_id")[0]
+
+    # ? Matching original attribute id to value attribute id
+    if attribute_id == attr_id:
+        attribute_value_id = attr_value.get("id")
     else:
         attribute_value_id = models.execute_kw(
             db,
@@ -367,8 +380,10 @@ def attribute_creation(objects, actions, attribute_name, value):
     return attribute
 
 
-def product_created(objects, actions, sku):
+def tec_product_created(odoo, objects, actions, sku):
+    uid, models, db, password = odoo
     found = False
+
     find = models.execute_kw(
         db,
         uid,
@@ -384,20 +399,26 @@ def product_created(objects, actions, sku):
     return found, find
 
 
-def produc_create():
-    print("Iniciando creación y/o actualización de productos")
-    products = 0
+def tec_creation(odoo):
+    print("Iniciando creación y/o actualización de productos - Tecnosinergia")
+    uid, models, db, password = odoo
+    total = 0
+    success = 0
     errors = 0
+    no_stock = (
+        "Por el momento no contamos con este producto.\n¡Comunícate con nosotros!"
+    )
 
     objects = {  # Modelos disponibles en Odoo
         "products": "product.product",
-        "product_template": "product.template",
+        "product": "product.template",
         "product_category": "product.public.category",
         "attribute": "product.attribute",
         "attribute_value": "product.attribute.value",
         "stock": "stock.quant",
         "intern": "stock.picking",
         "scrap": "stock.scrap",
+        "unspsc": "product.unspsc.code",
     }
 
     actions = {  # Acciones disponibles en Odoo
@@ -411,30 +432,48 @@ def produc_create():
     }
 
     for record in data:
+        if total == 2000:
+            odoo = netdata.odoo_tec_dos()
+            uid, models, db, password = odoo
+
+        if total == 4000:
+            odoo = netdata.odoo_tec_tres()
+            uid, models, db, password = odoo
+
+        if total == 6000:
+            odoo = netdata.odoo_tec_cuatro()
+            uid, models, db, password = odoo
+
+        if total == 8000:
+            odoo = netdata.odoo_tec_cinco()
+            uid, models, db, password = odoo
+
         # * Variables
         published = True
-        brand = html.unescape(record.get("brand")).upper()  # Marca
-        category = html.unescape(record.get("category")).upper()  # Categoria
-        attrs = {"Marca": brand, "Categoría": category}  # Attributes
         sku = record.get("sku")  # SKU
         stock_meri = record.get("stock_MER") | 0  # Stock de merida
         stock_qroo = record.get("stock_QRO") | 0  # Stock de qroo
         qty = stock_qroo + stock_meri  # Stock: merida||qroo
         name = html.unescape(record.get("name"))  # Nombre de producto
         clean_description = html.unescape(record.get("description"))
+        specs = record.get("data_sheet")
+        brand = html.unescape(record.get("brand"))  # Marca
+        cap_brand = brand.capitalize()  # Marca
+        category = html.unescape(record.get("category"))  # Categoria
+        attrs = {"Marca": cap_brand, "Categoría": category}  # Attributes
 
         # * Formateo de imagen
-        final_image = get_image(record)
+        final_image = tec_get_image(record)
 
         # * Formateo de textos
-        description = desc_format(clean_description)
+        description = tec_desc_format(clean_description)
 
         # * Verificación de existencia
-        prod_created = product_created(objects, actions, sku)
-        prod_category = cat_creation(objects, actions, record)
+        prod_created = tec_product_created(odoo, objects, actions, sku)
+        prod_category = tec_cat_creation(odoo, objects, actions, record)
 
         # * Verificación de atributos
-        attributes = attribute_created(objects, actions, sku, attrs)
+        attributes = attribute_created(odoo, objects, actions, sku, attrs)
 
         # * Elección de publicación
         if qty <= 0 or category == "Marketing":
@@ -443,7 +482,7 @@ def produc_create():
         # * Plantilla de creación del producto
         product_template = {
             "is_published": published,
-            "name": name,
+            "name": name.capitalize(),
             "default_code": record.get("sku"),
             "public_categ_ids": [(6, 0, [prod_category])],
             "sale_ok": True,
@@ -451,13 +490,17 @@ def produc_create():
             "detailed_type": "product",  # Solo netdata
             "list_price": record.get("regular_price"),
             "standard_price": record.get("sale_price"),
+            "description_purchase": "Producto Tecnosinergia",
             "description_sale": description,
+            "description_picking": specs,
             "weight": record.get("weight"),
             "volume": record.get("volume"),
             "image_1920": final_image,  # Encode base64
             "allow_out_of_stock_order": False,
             "show_availability": True,
             "available_threshold": 50,
+            "tracking": "none",
+            "out_of_stock_message": no_stock,
             "attribute_line_ids": attributes,
             # "unspsc_code_id": record.get("sat_code"),
         }
@@ -465,13 +508,13 @@ def produc_create():
         if final_image == False:  # * Imagen producto
             product_template.pop("image_1920")
 
-        if attributes == False:  # * Atributos producto
+        if attributes == False or attributes == "":
             product_template.pop("attribute_line_ids")
 
         if prod_created[0]:
             prod_id = prod_created[1][0]
 
-            write = models.execute_kw(
+            models.execute_kw(
                 db,
                 uid,
                 password,
@@ -480,9 +523,10 @@ def produc_create():
                 [[prod_id], product_template],
             )
 
-            products += 1
+            success += 1
+            total += 1
 
-            stock = stock_created(objects, actions, prod_id, qty)
+            tec_stock_created(odoo, objects, actions, prod_id, qty)
 
         # * Creación por inexistencia
         else:
@@ -490,18 +534,31 @@ def produc_create():
                 db,
                 uid,
                 password,
-                objects.get("product_template"),
+                objects.get("product"),
                 actions.get("create"),
                 [product_template],
             )
 
             try:
-                stock = stock_creation(objects, actions, create, qty)
-            except:
+                time.sleep(1)
+                tec_stock_creation(odoo, objects, actions, create, qty)
+            except Exception as e:
                 errors += 1
+                total += 1
+                del e
 
-            products += 1
+            success += 1
+            total += 1
 
-        print(f"Exitos: {products} - Errores: {errors}", end="\r")
+        print(f"Exitos: {success} - Errores: {errors}", end="\r")
+        time.sleep(1)
 
-    print("Operación en NetDataSolutions exitosa")
+    print("Operación Tecnosinergia en NetDataSolutions exitosa")
+
+    return success, errors
+
+
+def tec_main(odoo):
+    creation = tec_creation(odoo)
+
+    return creation

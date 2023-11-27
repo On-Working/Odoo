@@ -2,15 +2,16 @@ from decouple import config
 import requests
 
 url = config("tech_url", default="")  # * Url del API
+token = config("tech_token", default="")
 
 
-def tech_api():
+def tech_catalogue():
     # ? Llamada al API
     print("Iniciando conexión con el API de Tecnosinergia")
 
     headers = {
         "Content-Type": "application/json",
-        "api-token": config("tech_token", default=""),
+        "api-token": token,
     }
 
     redirects = {
@@ -31,6 +32,7 @@ def tech_api():
     info = res.json()  # Respuesta en formato JSON
     data = info.get("data")  # Arreglo de productos
 
+    lenght = len(data)
     print("Conexión con el API Tecnosinergia exitosa")
-    print("Retornando datos: Info, Data \n")
+    print(f"Retornando datos: Respuesta, Catalogo[{lenght}] \n")
     return (info, data)
