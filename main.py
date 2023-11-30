@@ -1,7 +1,7 @@
-import schedule
-import time
-import product as catalogue
 import odoo as netdata
+import product as catalogue
+import threading
+import time
 
 TIME_STR = "%Y-%m-%d %H:%M:%S"
 
@@ -60,13 +60,9 @@ def main():
     local_time = time.strftime(f"{TIME_STR} \n\n")
     print(END.format(TEC, local_time), end="\r")
 
+    t = threading.Timer(5, main)
+    t.start()
+
 
 if __name__ == "__main__":
     main()
-
-    schedule.every().day.do(main)
-
-    while True:
-        schedule.run_pending()
-
-        time.sleep(1)
