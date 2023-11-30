@@ -30,9 +30,9 @@ def tech_catalogue():
         return
 
     info = res.json()  # Respuesta en formato JSON
-    data = info.get("data")  # Arreglo de productos
+    catalogue = info.get("data")  # Arreglo de productos
 
-    lenght = len(data)
+    lenght = len(catalogue)
     print("Conexión con el API Tecnosinergia exitosa")
     print(f"Retornando datos: Respuesta, Catalogo[{lenght}] \n")
-    return (info, data)
+    return (info, catalogue)

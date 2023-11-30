@@ -425,6 +425,7 @@ def ct_creation(odoo):
             uid, models, db, password = odoo
 
         published = True
+        name = product.get("nombre")
         sku = product.get("clave")
         desc = product.get("descripcion_corta")
         final_image = ct_get_image(product)
@@ -440,12 +441,12 @@ def ct_creation(odoo):
         product_created = ct_created(odoo, objects, actions, sku)
         attributes = attribute_created(odoo, objects, actions, sku, attrs)
 
-        if qty <= 0:
+        if qty <= 0 or name == "":
             published = False
 
         product_template = {
             "is_published": published,
-            "name": product.get("nombre"),
+            "name": name,
             "default_code": sku,
             # "public_categ_ids": [(6, 0, [prod_category])], # Creación de categoria
             "sale_ok": True,
@@ -475,14 +476,21 @@ def ct_creation(odoo):
 
         if product_created[0]:
             prod_id = product_created[1][0]
-            models.execute_kw(
-                db,
-                uid,
-                password,
-                objects.get("products"),
-                actions.get("write"),
-                [[prod_id], product_template],
-            )
+
+            try:  # ? Manejo de errores en la escritura
+                models.execute_kw(
+                    db,
+                    uid,
+                    password,
+                    objects.get("products"),
+                    actions.get("write"),
+                    [[prod_id], product_template],
+                )
+
+            except Exception as e:
+                errors += 1
+
+                del e
 
             ct_stock_created(odoo, objects, actions, prod_id, qty)
 
@@ -490,21 +498,28 @@ def ct_creation(odoo):
             total += 1
 
         else:
-            create = models.execute_kw(
-                db,
-                uid,
-                password,
-                objects.get("product"),
-                actions.get("create"),
-                [product_template],
-            )
+            try:  # ? Manejo de errores en la creación
+                create = models.execute_kw(
+                    db,
+                    uid,
+                    password,
+                    objects.get("product"),
+                    actions.get("create"),
+                    [product_template],
+                )
 
-            try:
-                time.sleep(1)
+            except Exception as e:
+                errors += 1
+
+                del e
+
+            try:  # ? Manejo de errores en la creación de stock
                 ct_stock_creation(odoo, objects, actions, create, qty)
+
             except Exception as e:
                 errors += 1
                 total += 1
+
                 del e
 
             success += 1

@@ -33,10 +33,10 @@ def ct_catalogue():
 
     # ? Carga y trabaja con el archivo JSON localmente
     with open(json_file_name, "r") as local_file:
-        productos = json.load(local_file)
+        catalogue = json.load(local_file)
 
-    lenght = len(productos)
+    lenght = len(catalogue)
     print("Conexión con el FTP de CT exitosa")
     print(f"Retornando datos: Catalogo[{lenght}] \n")
 
-    return productos
+    return catalogue

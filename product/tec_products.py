@@ -476,7 +476,7 @@ def tec_creation(odoo):
         attributes = attribute_created(odoo, objects, actions, sku, attrs)
 
         # * Elección de publicación
-        if qty <= 0 or category == "Marketing":
+        if qty <= 0 or category == "Marketing" or name == "":
             published = False
 
         # * Plantilla de creación del producto
@@ -514,34 +514,46 @@ def tec_creation(odoo):
         if prod_created[0]:
             prod_id = prod_created[1][0]
 
-            models.execute_kw(
-                db,
-                uid,
-                password,
-                objects.get("products"),
-                actions.get("write"),
-                [[prod_id], product_template],
-            )
+            try:  # ? Manejo de errores en la escritura
+                models.execute_kw(
+                    db,
+                    uid,
+                    password,
+                    objects.get("products"),
+                    actions.get("write"),
+                    [[prod_id], product_template],
+                )
+
+            except Exception as e:
+                errors += 1
+
+                del e
+
+            tec_stock_created(odoo, objects, actions, prod_id, qty)
 
             success += 1
             total += 1
 
-            tec_stock_created(odoo, objects, actions, prod_id, qty)
-
         # * Creación por inexistencia
         else:
-            create = models.execute_kw(
-                db,
-                uid,
-                password,
-                objects.get("product"),
-                actions.get("create"),
-                [product_template],
-            )
+            try:  # ? Manejo de errores en la creación
+                create = models.execute_kw(
+                    db,
+                    uid,
+                    password,
+                    objects.get("product"),
+                    actions.get("create"),
+                    [product_template],
+                )
 
-            try:
-                time.sleep(1)
+            except Exception as e:
+                errors += 1
+
+                del e
+
+            try:  # ? Manejo de errores en la creación de stock
                 tec_stock_creation(odoo, objects, actions, create, qty)
+
             except Exception as e:
                 errors += 1
                 total += 1
