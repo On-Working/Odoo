@@ -1,38 +1,37 @@
-from decouple import config
-from ftplib import FTP
 import json
 
-url = config("ct_url", default="")  # * Url del API
+from decouple import config
+from ftplib import FTP
+
+URL = config("CT_URL", default="")
+FTP_HOST = config("CT_HOST", default="")
+FTP_USER = config("CT_USER", default="")
+FTP_PASSWORD = config("CT_PASS", default="")
+FTP_DIRECTORY = config("CT_DIR", default="")
+JSON_FILE = config("CT_FILE", default="")
 
 
 def ct_catalogue():
     print("Iniciando conexión FTP con CT")
 
-    # ? Datos ftp
-    ftp_host = config("ct_host", default="")
-    ftp_user = config("ct_user", default="")
-    ftp_password = config("ct_pass", default="")
-    ftp_directory = config("ct_dir", default="")
-    json_file_name = config("ct_file", default="")
-
     # ? Instancia FTP
-    ftp = FTP(ftp_host)
+    ftp = FTP(FTP_HOST)
 
     # ? Inicio de sesion FTP
-    ftp.login(ftp_user, ftp_password)
+    ftp.login(FTP_USER, FTP_PASSWORD)
 
     # ? Directorio deseado
-    ftp.cwd(ftp_directory)
+    ftp.cwd(FTP_DIRECTORY)
 
     # ? Archivo JSON
-    with open(json_file_name, "wb") as local_file:
-        ftp.retrbinary("RETR " + json_file_name, local_file.write)
+    with open(JSON_FILE, "wb") as local_file:
+        ftp.retrbinary("RETR " + JSON_FILE, local_file.write)
 
     # ? Conexion FTP cerrada
     ftp.quit()
 
     # ? Carga y trabaja con el archivo JSON localmente
-    with open(json_file_name, "r") as local_file:
+    with open(JSON_FILE, "r") as local_file:
         catalogue = json.load(local_file)
 
     lenght = len(catalogue)

@@ -1,12 +1,13 @@
-from decouple import config
 import requests
 
-url = config("sys_url", default="")  # * Url del API
-token = config("sys_token", default="")  # * Token del API
+from decouple import config
+
+URL = config("SYS_URL", default="")  # * Url del API
+TOKEN = config("SYS_TOKEN", default="")  # * Token del API
 
 headers = {
     "Content-Type": "application/json",
-    "Authorization": "Bearer {}".format(token),
+    "Authorization": "Bearer {}".format(TOKEN),
 }
 
 redirects = {
@@ -20,7 +21,7 @@ redirects = {
 
 def sys_exchange():
     conversion = redirects.get("exchange")
-    get_exchange = requests.get(url + conversion, headers=headers)
+    get_exchange = requests.get(URL + conversion, headers=headers)
     exchange = get_exchange.json().get("normal")
 
     return exchange
@@ -28,7 +29,7 @@ def sys_exchange():
 
 def sys_brands():
     all_brands = redirects.get("brands")
-    get_brands = requests.get(url + all_brands, headers=headers)
+    get_brands = requests.get(URL + all_brands, headers=headers)
     brands = get_brands.json()
 
     return brands
@@ -36,7 +37,7 @@ def sys_brands():
 
 def sys_categories():
     all_categories = redirects.get("categories")
-    get_categories = requests.get(url + all_categories, headers=headers)
+    get_categories = requests.get(URL + all_categories, headers=headers)
     categories = get_categories.json()
 
     return categories
@@ -47,7 +48,7 @@ def sys_categorie_products(cat_id, page):
     prod_categories = redirects.get("cat_prods")
 
     get_cat_prods = requests.get(
-        url + prod_categories.format(cat_id, page), headers=headers
+        URL + prod_categories.format(cat_id, page), headers=headers
     )
 
     products = get_cat_prods.json()
@@ -60,7 +61,7 @@ def sys_brand_products(brand_id, page):
     prod_brands = redirects.get("brand_prods")
 
     get_brand_prods = requests.get(
-        url + prod_brands.format(brand_id, page), headers=headers
+        URL + prod_brands.format(brand_id, page), headers=headers
     )
 
     products = get_brand_prods.json()

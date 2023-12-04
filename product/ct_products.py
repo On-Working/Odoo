@@ -1,9 +1,10 @@
-from decouple import config
 import ct
 import requests
 import validators
 import base64
 import time
+
+from decouple import config
 import odoo as netdata
 
 catalogue = ct.ct_catalogue()
@@ -172,7 +173,7 @@ def ct_get_image(product):
     url = validators.url(image)
 
     if not url:  # * Validación de la url
-        image = config("odoo_def_img", default="")
+        image = config("NDS_DEF_IMG", default="")
 
     try:
         get_image = requests.get(image)
@@ -437,7 +438,7 @@ def ct_creation(odoo):
         brand = product.get("marca")
         cap_brand = brand.capitalize()
         category = product.get("categoria")
-        attrs = {"Marca": cap_brand, "Categoría": category}
+        attrs = {"Marcas": cap_brand, "Categorías": category}
         product_created = ct_created(odoo, objects, actions, sku)
         attributes = attribute_created(odoo, objects, actions, sku, attrs)
 
@@ -492,7 +493,14 @@ def ct_creation(odoo):
 
                 del e
 
-            ct_stock_created(odoo, objects, actions, prod_id, qty)
+            try:  # ? Manejo de errores en la actualizacion de stock
+                ct_stock_created(odoo, objects, actions, prod_id, qty)
+
+            except Exception as e:
+                errors += 1
+                total += 1
+
+                del e
 
             success += 1
             total += 1
