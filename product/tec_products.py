@@ -1,6 +1,3 @@
-from decouple import config
-from PIL import Image
-from io import BytesIO
 import tec
 import requests
 import html
@@ -8,6 +5,10 @@ import validators
 import base64
 import re
 import time
+
+from decouple import config
+from PIL import Image
+from io import BytesIO
 import odoo as netdata
 
 tec = tec.tech_catalogue()
@@ -22,7 +23,7 @@ def tec_get_image(record):
     url = validators.url(image)
 
     if not url:  # * Validación de la url
-        image = config("odoo_def_img", default="")
+        image = config("NDS_DEF_IMG", default="")
 
     try:
         get_image = requests.get(image)
@@ -460,7 +461,7 @@ def tec_creation(odoo):
         brand = html.unescape(record.get("brand"))  # Marca
         cap_brand = brand.capitalize()  # Marca
         category = html.unescape(record.get("category"))  # Categoria
-        attrs = {"Marca": cap_brand, "Categoría": category}  # Attributes
+        attrs = {"Marcas": cap_brand, "Categorías": category}  # Attributes
 
         # * Formateo de imagen
         final_image = tec_get_image(record)
@@ -529,7 +530,14 @@ def tec_creation(odoo):
 
                 del e
 
-            tec_stock_created(odoo, objects, actions, prod_id, qty)
+            try:  # ? Manejo de errores en la actualizacion de stock
+                tec_stock_created(odoo, objects, actions, prod_id, qty)
+
+            except Exception as e:
+                errors += 1
+                total += 1
+
+                del e
 
             success += 1
             total += 1

@@ -1,7 +1,8 @@
-import odoo as netdata
-import product as catalogue
 import threading
 import time
+
+import odoo as netdata
+import product as catalogue
 
 TIME_STR = "%Y-%m-%d %H:%M:%S"
 

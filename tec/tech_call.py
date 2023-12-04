@@ -1,8 +1,9 @@
-from decouple import config
 import requests
 
-url = config("tech_url", default="")  # * Url del API
-token = config("tech_token", default="")
+from decouple import config
+
+URL = config("TECH_URL", default="")  # * Url del API
+TOKEN = config("TECH_TOKEN", default="")
 
 
 def tech_catalogue():
@@ -11,7 +12,7 @@ def tech_catalogue():
 
     headers = {
         "Content-Type": "application/json",
-        "api-token": token,
+        "api-token": TOKEN,
     }
 
     redirects = {
@@ -23,7 +24,7 @@ def tech_catalogue():
         "order": "/order/create",  # Creación de una orden
     }
 
-    res = requests.get(url + redirects.get("products"), headers=headers)
+    res = requests.get(URL + redirects.get("products"), headers=headers)
 
     if res.status_code != 200:
         print("Error en la llamada al API")

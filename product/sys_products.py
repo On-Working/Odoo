@@ -1,12 +1,15 @@
-from decouple import config
 import sysc
 import requests
 import validators
 import base64
 import datetime
 import time
+
+from bs4 import BeautifulSoup
+from decouple import config
 import odoo as netdata
 
+NDS_DEF_SEARCH = config("NDS_DEF_SEARCH", default="")
 LOCAL_DAY = datetime.date.today()
 exchange = sysc.sys_exchange()
 catalogue = sysc.sys_catalogue()
@@ -175,7 +178,7 @@ def sys_get_image(product):
     url = validators.url(image)
 
     if not url:  # * Validación de la url
-        image = config("odoo_def_img", default="")
+        image = config("NDS_DEF_IMG", default="")
 
     try:
         get_image = requests.get(image)
@@ -190,16 +193,60 @@ def sys_get_image(product):
     return final_image
 
 
-def sys_get_espec(url):
-    specs = False
-
+def sys_get_specs(url):
     if url == "":
-        return specs
+        return False
 
     res = requests.get(url)
-    specs = res.text
 
-    return specs
+    content = res.text
+
+    soup = BeautifulSoup(content, "html.parser")
+
+    style_labels = soup.find_all("style")
+    contenido_div = soup.find("div", {"class": "container"})
+    contenido_iframe = contenido_div.find_all("iframe")
+    contenido_img = contenido_div.find_all("img")
+    contenido_a = contenido_div.find_all("a")
+    style_attr = "style"
+    a_attr = "href"
+
+    for style in style_labels:
+        contenido_div.insert_before(style)
+
+    for iframe in contenido_iframe:
+        new_div = soup.new_tag("div", attrs={"class": "multimedia"})
+
+        iframe.insert_after(new_div)
+        new_div.append(iframe)
+
+    for img in contenido_img:
+        img["class"] = "imagen_nds"
+        new_div = soup.new_tag("div", attrs={"class": "media"})
+
+        if img.attrs.__contains__(style_attr):
+            style = img.attrs.get(style_attr)
+            if style == "float: right;":
+                del img[style_attr]
+
+        img.insert_after(new_div)
+        new_div.append(img)
+
+    for a in contenido_a:
+        if a.attrs.__contains__(a_attr):
+            text = a.get_text()
+
+            if a[a_attr].startswith("https://www.syscom"):
+                # print()
+                a[a_attr] = NDS_DEF_SEARCH.format(text)
+
+    # ? Agregar una clase extra al contenedor principal
+    deseado = "contenedor_nds"
+    contenido_div["class"] = deseado
+
+    nice = contenido_div.prettify()
+
+    return nice
 
 
 def sys_stock(product):
@@ -483,7 +530,8 @@ def sys_creation(odoo):
         name = product.get("titulo")
         sku = product.get("modelo")
         precios = product.get("precios")
-        specs = product.get("link_privado")
+        specs_link = product.get("link_privado")
+        specs = sys_get_specs(specs_link)
         conversion = float(exchange)
         qty = sys_stock(product)
         product_created = sys_created(odoo, objects, actions, sku)
@@ -498,7 +546,7 @@ def sys_creation(odoo):
             if level == 1:
                 category = categorie.get("nombre")
 
-        attrs = {"Marca": cap_brand, "Categoría": category}
+        attrs = {"Marcas": cap_brand, "Categorías": category}
 
         if precios:  # * Precio en dolares por conversión
             costo = float(precios.get("precio_descuento"))
@@ -531,8 +579,9 @@ def sys_creation(odoo):
             "list_price": precio,
             "standard_price": costo,
             "description_purchase": "Producto Syscom",
-            "description_sale": f"Producto: {name} \nMarca: {brand} \n",
-            "description_picking": specs,
+            "description_sale": f"Producto: {name} \n\nMarca: {brand} \n",
+            "description_picking": specs_link,
+            "description_pickingin": specs,
             # "weight": product.get("peso"),
             # "volume": record.get("volume"),
             "image_1920": final_image,  # Encode base64
@@ -572,7 +621,14 @@ def sys_creation(odoo):
 
                 del e
 
-            sys_stock_created(odoo, objects, actions, prod_id, qty)
+            try:  # ? Manejo de errores en la actualizacion de stock
+                sys_stock_created(odoo, objects, actions, prod_id, qty)
+
+            except Exception as e:
+                errors += 1
+                total += 1
+
+                del e
 
             success += 1
             total += 1
