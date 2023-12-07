@@ -33,6 +33,91 @@ def unspsc_verification(odoo, objects, actions, product):
     return sat_id
 
 
+def cat_created(odoo, objects, actions, name):
+    if name == "":
+        return (False, [])
+
+    uid, models, db, password = odoo
+    found = False
+    find = models.execute_kw(
+        db,
+        uid,
+        password,
+        objects.get("product_category"),
+        actions.get("s_read"),
+        [[["name", "=", name]]],
+        {"fields": ["parent_id"]},
+    )
+
+    if find:
+        found = True
+
+    return found, find
+
+
+def cat_creation(odoo, objects, actions, record):
+    uid, models, db, password = odoo
+    parent_of_parent = ""
+    parent = record.get("categoria")
+    parent_created = cat_created(odoo, objects, actions, parent)
+    parent_id = False
+    category = record.get("subcategoria")
+    category_created = cat_created(odoo, objects, actions, category)
+
+    if parent_created[0]:
+        parent_id = parent_created[1][0].get("id")
+        parent_of_parent = parent_created[1][0].get("parent_id")
+
+        if parent_of_parent:
+            parent_of_parent = parent_created[1][0].get("parent_id")[0]
+
+    cat_data = {
+        "name": category,
+        "parent_id": parent_id,
+        "website_description": category,
+    }
+
+    if not parent_id:
+        cat_data.pop("parent_id")
+
+    if category_created[0]:
+        category_id = category_created[1][0].get("id")
+
+        try:
+            models.execute_kw(
+                db,
+                uid,
+                password,
+                objects.get("product_category"),
+                actions.get("write"),
+                [[category_id], cat_data],
+            )
+
+        except Exception as e:
+            cat_data.pop("parent_id")
+
+            del e
+
+        return category_id
+
+    try:
+        create = models.execute_kw(
+            db,
+            uid,
+            password,
+            objects.get("product_category"),
+            actions.get("create"),
+            [cat_data],
+        )
+
+    except Exception as e:
+        cat_data.pop("parent_id")
+
+        del e
+
+    return create
+
+
 def attribute_created(odoo, objects, actions, sku, data):
     uid, models, db, password = odoo
     attrs = data
@@ -202,10 +287,11 @@ def ct_price(product):
     promociones = product.get("promociones")
     moneda = product.get("moneda")
     cambio = product.get("tipoCambio")
+    precio = product.get("precio")
 
     if promociones:
         costo = promociones[0].get("promocion")
-    precio = product.get("precio")
+        precio = precio + ((precio * 10) / 100)
 
     # * En caso de no existir costo, aplicar 10% costo más impuestos
     if not promociones:
@@ -438,6 +524,7 @@ def ct_creation(odoo):
         brand = product.get("marca")
         cap_brand = brand.capitalize()
         category = product.get("categoria")
+        prod_category = cat_creation(odoo, objects, actions, product)
         attrs = {"Marcas": cap_brand, "Categorías": category}
         product_created = ct_created(odoo, objects, actions, sku)
         attributes = attribute_created(odoo, objects, actions, sku, attrs)
@@ -449,7 +536,7 @@ def ct_creation(odoo):
             "is_published": published,
             "name": name,
             "default_code": sku,
-            # "public_categ_ids": [(6, 0, [prod_category])], # Creación de categoria
+            "public_categ_ids": [(6, 0, [prod_category])],  # Creación de categorias
             "sale_ok": True,
             "purchase_ok": True,
             "detailed_type": "product",  # Solo netdata

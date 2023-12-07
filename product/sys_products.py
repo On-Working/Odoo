@@ -15,6 +15,110 @@ exchange = sysc.sys_exchange()
 catalogue = sysc.sys_catalogue()
 
 
+def cat_created(odoo, objects, actions, name):
+    if name == "":
+        return (False, [])
+
+    uid, models, db, password = odoo
+    found = False
+    find = models.execute_kw(
+        db,
+        uid,
+        password,
+        objects.get("product_category"),
+        actions.get("s_read"),
+        [[["name", "=", name]]],
+        {"fields": ["parent_id"]},
+    )
+
+    if find:
+        found = True
+
+    return found, find
+
+
+def cat_creation(odoo, objects, actions, record):
+    uid, models, db, password = odoo
+    parent_of_parent = ""
+    parent = record.get("categoria")
+    parent_created = cat_created(odoo, objects, actions, parent)
+    parent_id = False
+    category = record.get("subcategoria")
+    category_created = cat_created(odoo, objects, actions, category)
+
+    if parent_created[0]:
+        parent_id = parent_created[1][0].get("id")
+        parent_of_parent = parent_created[1][0].get("parent_id")
+
+        if parent_of_parent:
+            parent_of_parent = parent_created[1][0].get("parent_id")[0]
+
+    cat_data = {
+        "name": category,
+        "parent_id": parent_id,
+        "website_description": category,
+    }
+
+    if not parent_id:
+        cat_data.pop("parent_id")
+
+    if category_created[0]:
+        category_id = category_created[1][0].get("id")
+
+        if parent_of_parent == category_id or category_id == parent_id:
+            cat_data.pop("parent_id")
+
+        try:
+            models.execute_kw(
+                db,
+                uid,
+                password,
+                objects.get("product_category"),
+                actions.get("write"),
+                [[category_id], cat_data],
+            )
+
+        except Exception as e:
+            cat_data.pop("parent_id")
+            models.execute_kw(
+                db,
+                uid,
+                password,
+                objects.get("product_category"),
+                actions.get("write"),
+                [[category_id], cat_data],
+            )
+
+            del e
+
+        return category_id
+
+    try:
+        create = models.execute_kw(
+            db,
+            uid,
+            password,
+            objects.get("product_category"),
+            actions.get("create"),
+            [cat_data],
+        )
+
+    except Exception as e:
+        cat_data.pop("parent_id")
+        create = models.execute_kw(
+            db,
+            uid,
+            password,
+            objects.get("product_category"),
+            actions.get("create"),
+            [cat_data],
+        )
+
+        del e
+
+    return create
+
+
 def attribute_created(odoo, objects, actions, sku, data):
     uid, models, db, password = odoo
     attrs = data
@@ -197,6 +301,10 @@ def sys_get_specs(url):
     if url == "":
         return False
 
+    default_html = (
+        "<div class='contenedor_nds'><p>Error en el contenedor del producto</p></div>"
+    )
+    nice = False
     res = requests.get(url)
 
     content = res.text
@@ -205,9 +313,16 @@ def sys_get_specs(url):
 
     style_labels = soup.find_all("style")
     contenido_div = soup.find("div", {"class": "container"})
+
+    if not contenido_div:
+        return default_html
+
     contenido_iframe = contenido_div.find_all("iframe")
     contenido_img = contenido_div.find_all("img")
     contenido_a = contenido_div.find_all("a")
+    clase_div = "contenedor_nds"
+    clase_img = "imagen_nds"
+    loading_img = "lazy"
     style_attr = "style"
     a_attr = "href"
 
@@ -221,7 +336,8 @@ def sys_get_specs(url):
         new_div.append(iframe)
 
     for img in contenido_img:
-        img["class"] = "imagen_nds"
+        img["class"] = clase_img
+        img["loading"] = loading_img
         new_div = soup.new_tag("div", attrs={"class": "media"})
 
         if img.attrs.__contains__(style_attr):
@@ -241,8 +357,7 @@ def sys_get_specs(url):
                 a[a_attr] = NDS_DEF_SEARCH.format(text)
 
     # ? Agregar una clase extra al contenedor principal
-    deseado = "contenedor_nds"
-    contenido_div["class"] = deseado
+    contenido_div["class"] = clase_div
 
     nice = contenido_div.prettify()
 
@@ -538,6 +653,8 @@ def sys_creation(odoo):
         code_id = unspsc_verification(odoo, objects, actions, product)
         brand = product.get("marca")
         cap_brand = brand.capitalize()
+        category = ""
+        subcategory = ""
         categories = product.get("categorias")
 
         for categorie in categories:
@@ -546,11 +663,15 @@ def sys_creation(odoo):
             if level == 1:
                 category = categorie.get("nombre")
 
+            if level == 2:
+                subcategory = categorie.get("nombre")
+
+        prod_categ = {"categoria": category, "subcategoria": subcategory}
         attrs = {"Marcas": cap_brand, "Categorías": category}
 
         if precios:  # * Precio en dolares por conversión
             costo = float(precios.get("precio_descuento"))
-            precio = float(precios.get("precio_lista"))
+            precio = precio + ((precio * 30) / 100)
 
         if not precios:
             costo = 0
@@ -566,13 +687,14 @@ def sys_creation(odoo):
         if specs == False:
             specs = ""
 
+        prod_category = cat_creation(odoo, objects, actions, prod_categ)
         attributes = attribute_created(odoo, objects, actions, sku, attrs)
 
         product_template = {
             "is_published": published,
             "name": name,
             "default_code": sku,
-            # "public_categ_ids": [(6, 0, [prod_category])],
+            "public_categ_ids": [(6, 0, [prod_category])],
             "sale_ok": True,
             "purchase_ok": True,
             "detailed_type": "product",  # Solo netdata

@@ -70,6 +70,9 @@ def tec_desc_format(text):
 
 
 def tec_cat_created(odoo, objects, actions, name):
+    if name == "":
+        return (False, [])
+
     uid, models, db, password = odoo
     found = False
     find = models.execute_kw(
@@ -77,8 +80,9 @@ def tec_cat_created(odoo, objects, actions, name):
         uid,
         password,
         objects.get("product_category"),
-        actions.get("search"),
+        actions.get("s_read"),
         [[["name", "=", name]]],
+        {"fields": ["parent_id"]},
     )
 
     if find:
@@ -89,39 +93,79 @@ def tec_cat_created(odoo, objects, actions, name):
 
 def tec_cat_creation(odoo, objects, actions, record):
     uid, models, db, password = odoo
-    name = html.unescape(record.get("category"))
-    # parent = html.unescape(record.get("parent_subcategory"))
-    created = tec_cat_created(odoo, objects, actions, name)
+    parent_of_parent = ""
+    parent = html.unescape(record.get("parent_subcategory"))
+    parent_created = tec_cat_created(odoo, objects, actions, parent)
+    parent_id = False
+    category = html.unescape(record.get("category"))
+    category_created = tec_cat_created(odoo, objects, actions, category)
+
+    if parent_created[0]:
+        parent_id = parent_created[1][0].get("id")
+        parent_of_parent = parent_created[1][0].get("parent_id")
+
+        if parent_of_parent:
+            parent_of_parent = parent_created[1][0].get("parent_id")[0]
 
     cat_data = {
-        "name": name,
-        # "parent_id": parent,
-        "website_description": name,
+        "name": category,
+        "parent_id": parent_id,
+        "website_description": category,
     }
 
-    # if name == parent:
-    #     cat_data.pop("parent_id")
+    if not parent_id:
+        cat_data.pop("parent_id")
 
-    if created[0]:
-        models.execute_kw(
+    if category_created[0]:
+        category_id = category_created[1][0].get("id")
+
+        try:
+            models.execute_kw(
+                db,
+                uid,
+                password,
+                objects.get("product_category"),
+                actions.get("write"),
+                [[category_id], cat_data],
+            )
+
+        except Exception as e:
+            cat_data.pop("parent_id")
+            models.execute_kw(
+                db,
+                uid,
+                password,
+                objects.get("product_category"),
+                actions.get("write"),
+                [[category_id], cat_data],
+            )
+
+            del e
+
+        return category_id
+
+    try:
+        create = models.execute_kw(
             db,
             uid,
             password,
             objects.get("product_category"),
-            actions.get("write"),
-            [[created[1][0]], cat_data],
+            actions.get("create"),
+            [cat_data],
         )
 
-        return created[1][0]
+    except Exception as e:
+        cat_data.pop("parent_id")
+        create = models.execute_kw(
+            db,
+            uid,
+            password,
+            objects.get("product_category"),
+            actions.get("create"),
+            [cat_data],
+        )
 
-    create = models.execute_kw(
-        db,
-        uid,
-        password,
-        objects.get("product_category"),
-        actions.get("create"),
-        [cat_data],
-    )
+        del e
 
     return create
 
