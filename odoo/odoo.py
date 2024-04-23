@@ -2,6 +2,7 @@ import xmlrpc.client
 
 from decouple import config
 
+
 URL = config("NDS_URL", default="")
 DB = config("NDS_DB", default="")
 USER = config("NDS_USERNAME", default="")

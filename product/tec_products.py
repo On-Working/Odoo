@@ -11,13 +11,12 @@ from PIL import Image
 from io import BytesIO
 import odoo as netdata
 
-tec = tec.tech_catalogue()
-
-info = tec[0]
-data = tec[1]
-
 
 def tec_get_image(record):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36",
+    }
+
     image = record.get("image")
 
     url = validators.url(image)
@@ -26,23 +25,29 @@ def tec_get_image(record):
         image = config("NDS_DEF_IMG", default="")
 
     try:
-        get_image = requests.get(image)
+        get_image = requests.get(image, headers=headers)
     except Exception as e:
         del e
         return False
 
-    data_image = get_image.content
-    img = Image.open(BytesIO(data_image))
-    img_size = img.size
-    x, y = img_size
-    if x or y > 5000:
-        nx = x / 2
-        ny = y / 2
-        nsize = (round(nx), round(ny))
-        nimage = img.resize(nsize)
-        buffer = BytesIO()
-        nimage.save(buffer, format="PNG")
-        data_image = buffer.getvalue()
+    try:
+        data_image = get_image.content
+        img = Image.open(BytesIO(data_image))
+        img_size = img.size
+        x, y = img_size
+        if x or y > 5000:
+            nx = x / 2
+            ny = y / 2
+            nsize = (round(nx), round(ny))
+            nimage = img.resize(nsize)
+            buffer = BytesIO()
+            nimage.save(buffer, format="PNG")
+            data_image = buffer.getvalue()
+    except Exception as e:
+        image = config("NDS_DEF_IMG", default="")
+        get_image = requests.get(image)
+        data_image = get_image.content
+        del e
 
     binary_image = base64.b64encode(data_image)
     final_image = binary_image.decode("ascii")
@@ -130,19 +135,16 @@ def tec_cat_creation(odoo, objects, actions, record):
             )
 
         except Exception as e:
-            cat_data.pop("parent_id")
-            models.execute_kw(
-                db,
-                uid,
-                password,
-                objects.get("product_category"),
-                actions.get("write"),
-                [[category_id], cat_data],
-            )
 
             del e
 
         return category_id
+
+    if category == "" and parent != "":
+        category = parent
+
+    elif parent == "":
+        return False
 
     try:
         create = models.execute_kw(
@@ -155,7 +157,9 @@ def tec_cat_creation(odoo, objects, actions, record):
         )
 
     except Exception as e:
-        cat_data.pop("parent_id")
+        if cat_data.__contains__("parent_id"):
+            cat_data.pop("parent_id")
+
         create = models.execute_kw(
             db,
             uid,
@@ -444,7 +448,7 @@ def tec_product_created(odoo, objects, actions, sku):
     return found, find
 
 
-def tec_creation(odoo):
+def tec_creation(odoo, data):
     print("Iniciando creación y/o actualización de productos - Tecnosinergia")
     uid, models, db, password = odoo
     total = 0
@@ -550,6 +554,9 @@ def tec_creation(odoo):
             # "unspsc_code_id": record.get("sat_code"),
         }
 
+        if prod_category == False:
+            product_template.pop("public_categ_ids")
+
         if final_image == False:  # * Imagen producto
             product_template.pop("image_1920")
 
@@ -623,6 +630,9 @@ def tec_creation(odoo):
 
 
 def tec_main(odoo):
-    creation = tec_creation(odoo)
+    sinergy = tec.tech_catalogue()
+
+    data = sinergy[1]
+    creation = tec_creation(odoo, data)
 
     return creation
