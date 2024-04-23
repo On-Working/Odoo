@@ -5,14 +5,12 @@ import base64
 import datetime
 import time
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Comment
 from decouple import config
 import odoo as netdata
 
 NDS_DEF_SEARCH = config("NDS_DEF_SEARCH", default="")
 LOCAL_DAY = datetime.date.today()
-exchange = sysc.sys_exchange()
-catalogue = sysc.sys_catalogue()
 
 
 def cat_created(odoo, objects, actions, name):
@@ -79,19 +77,16 @@ def cat_creation(odoo, objects, actions, record):
             )
 
         except Exception as e:
-            cat_data.pop("parent_id")
-            models.execute_kw(
-                db,
-                uid,
-                password,
-                objects.get("product_category"),
-                actions.get("write"),
-                [[category_id], cat_data],
-            )
 
             del e
 
         return category_id
+
+    if category == "" and parent != "":
+        category = parent
+
+    elif parent == "":
+        return False
 
     try:
         create = models.execute_kw(
@@ -104,7 +99,9 @@ def cat_creation(odoo, objects, actions, record):
         )
 
     except Exception as e:
-        cat_data.pop("parent_id")
+        if cat_data.__contains__("parent_id"):
+            cat_data.pop("parent_id")
+
         create = models.execute_kw(
             db,
             uid,
@@ -276,92 +273,173 @@ def unspsc_verification(odoo, objects, actions, product):
     return sat_id
 
 
-def sys_get_image(product):
+def sys_get_image(product, has):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36",
+    }
+
+    if has:
+        return False, False
+
+    h_img = True
     image = product.get("img_portada")
 
     url = validators.url(image)
 
     if not url:  # * Validación de la url
         image = config("NDS_DEF_IMG", default="")
-
+        h_img = False
     try:
-        get_image = requests.get(image)
+        get_image = requests.get(image, headers=headers)
     except Exception as e:
         del e
-        return False
+
+        return False, False
 
     data_image = get_image.content
     binary_image = base64.b64encode(data_image)
     final_image = binary_image.decode("ascii")
 
-    return final_image
+    return final_image, h_img
 
 
-def sys_get_specs(url):
-    if url == "":
-        return False
+def sys_get_specs(url, has):
+    if url == "" or has:
+        return False, False
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36",
+    }
 
     default_html = (
         "<div class='contenedor_nds'><p>Error en el contenedor del producto</p></div>"
     )
     nice = False
-    res = requests.get(url)
+    description = False
+    elmnts = []
 
-    content = res.text
+    try:
+        res = requests.get(url, headers=headers)
+    except Exception as e:
+        del e
 
-    soup = BeautifulSoup(content, "html.parser")
+        return default_html, description
 
-    style_labels = soup.find_all("style")
-    contenido_div = soup.find("div", {"class": "container"})
+    res_text = res.text
 
-    if not contenido_div:
-        return default_html
+    content = BeautifulSoup(res_text, "html.parser")
 
-    contenido_iframe = contenido_div.find_all("iframe")
-    contenido_img = contenido_div.find_all("img")
-    contenido_a = contenido_div.find_all("a")
-    clase_div = "contenedor_nds"
-    clase_img = "imagen_nds"
+    # ? Label elements
+    info_comment = "Inicia información de producto"
+    specs_comment = "Inicia especificaciones de producto"
+    parent_class = "contenedor_nds"
+    info_class = "info_nds"
+    specs_class = "specs_nds"
+    img_class = "imagen_nds"
     loading_img = "lazy"
     style_attr = "style"
+    class_attr = "class"
     a_attr = "href"
 
+    # ? New html labels
+    parent_div = content.new_tag("div", attrs={"class": parent_class})
+    info_div = content.new_tag("div", attrs={"class": info_class})
+    specs_div = content.new_tag("div", attrs={"class": specs_class})
+
+    # ? Html actions
+    style_labels = content.find_all("style")
+    div_content = content.find("div", {"class": "container"})
+
+    if not div_content:
+        return default_html
+
+    comment_specs = div_content.find(
+        string=lambda text: isinstance(text, Comment) and specs_comment in text
+    )
+
+    comment_info = div_content.find(
+        string=lambda text: isinstance(text, Comment) and info_comment in text
+    )
+
+    # ? Info box
+    prod_info = comment_info.find_next("div")
+    info_div.append(prod_info)
+    elmnts.append(info_div)
+
+    # ? Espec box
+    prod_specs = comment_specs.find_next("div")
+    specs_div.append(prod_specs)
+    elmnts.append(specs_div)
+
+    # ? Insert style labels
     for style in style_labels:
-        contenido_div.insert_before(style)
+        parent_div.append(style)
 
-    for iframe in contenido_iframe:
-        new_div = soup.new_tag("div", attrs={"class": "multimedia"})
+    for elmnt in elmnts:
+        iframe_content = elmnt.find_all("iframe")
+        img_content = elmnt.find_all("img")
+        a_content = elmnt.find_all("a")
 
-        iframe.insert_after(new_div)
-        new_div.append(iframe)
+        for iframe in iframe_content:
+            new_div = content.new_tag("div", attrs={"class": "multimedia"})
 
-    for img in contenido_img:
-        img["class"] = clase_img
-        img["loading"] = loading_img
-        new_div = soup.new_tag("div", attrs={"class": "media"})
+            iframe.insert_after(new_div)
+            new_div.append(iframe)
 
-        if img.attrs.__contains__(style_attr):
-            style = img.attrs.get(style_attr)
-            if style == "float: right;":
-                del img[style_attr]
+        # ? Only exec on info box
+        if elmnts.index(elmnt) == 0:
+            cols_content = elmnt.find_all("div", attrs={"class": "col-md-4"})
 
-        img.insert_after(new_div)
-        new_div.append(img)
+            for cols in cols_content:
+                info_img = content.new_tag("div", attrs={"class": "media"})
+                cols_img = cols.find_all("img")
 
-    for a in contenido_a:
-        if a.attrs.__contains__(a_attr):
-            text = a.get_text()
+                for img in cols_img:
+                    lenght = len(cols_img)
 
-            if a[a_attr].startswith("https://www.syscom"):
-                # print()
-                a[a_attr] = NDS_DEF_SEARCH.format(text)
+                    if img.attrs.__contains__(class_attr):
+                        img_class = img.attrs.get(class_attr)
+                        if img_class == ["img-responsive", "img-thumbnail"]:
+                            thumb_img = content.new_tag("div", attrs={"class": "media"})
+                            img.insert_after(thumb_img)
+                            thumb_img.append(img)
 
-    # ? Agregar una clase extra al contenedor principal
-    contenido_div["class"] = clase_div
+                    else:
+                        # ? Only exec on last item
+                        if lenght == (cols_img.index(img) + 1):
+                            img.insert_after(info_img)
 
-    nice = contenido_div.prettify()
+                        info_img.append(img)
 
-    return nice
+        # ? Only exec on spec box
+        if elmnts.index(elmnt) != 0:
+            for img in img_content:
+                img["class"] = img_class
+                img["loading"] = loading_img
+
+                specs_img = content.new_tag("div", attrs={"class": "media"})
+
+                if img.attrs.__contains__(style_attr):
+                    style = img.attrs.get(style_attr)
+                    if style == "float: right;":
+                        del img[style_attr]
+
+                img.insert_after(specs_img)
+                specs_img.append(img)
+
+        for a in a_content:
+            if a.attrs.__contains__(a_attr):
+                text = a.get_text()
+
+                if a[a_attr].startswith("https://www.syscom"):
+                    a[a_attr] = NDS_DEF_SEARCH.format(text)
+
+        parent_div.append(elmnt)
+
+    nice = parent_div.prettify()
+    description = True
+
+    return nice, description
 
 
 def sys_stock(product):
@@ -504,23 +582,36 @@ def sys_stock_creation(odoo, objects, actions, id, qty):
 
 def sys_created(odoo, objects, actions, sku):
     uid, models, db, password = odoo
+    prod_info = {}
     found = False
     find = models.execute_kw(
         db,
         uid,
         password,
         objects.get("products"),
-        actions.get("search"),
+        actions.get("s_read"),
         [[["default_code", "=", sku]]],
     )
 
     if find:
         found = True
 
-    return found, find
+        p_id = find[0].get("id")
+        p_qty = find[0].get("qty_available")
+        p_img = find[0].get("x_has_image")
+        p_desc = find[0].get("x_has_description")
+
+        prod_info = {
+            "id": p_id,
+            "qty": p_qty,
+            "img": p_img,
+            "desc": p_desc,
+        }
+
+    return found, prod_info
 
 
-def sys_creation(odoo):
+def sys_creation(odoo, catalogue, exchange):
     print("Iniciando creación y/o actualización de productos - SYSCOM\n")
     uid, models, db, password = odoo
     total = 0
@@ -641,15 +732,26 @@ def sys_creation(odoo):
             odoo = netdata.odoo_sys_veintitres()
             uid, models, db, password = odoo
 
+        qty = sys_stock(product)
+        sku = product.get("modelo")
+        product_created = sys_created(odoo, objects, actions, sku)
+
+        prod_id = product_created[1].get("id")
+        p_qty = product_created[1].get("qty")
+        has_img = product_created[1].get("img")
+        has_desc = product_created[1].get("desc")
+
+        if qty == p_qty and has_img and has_desc:
+            total += 1
+
+            continue
+
         published = True
         name = product.get("titulo")
-        sku = product.get("modelo")
         precios = product.get("precios")
         specs_link = product.get("link_privado")
-        specs = sys_get_specs(specs_link)
+        specs = sys_get_specs(specs_link, has_desc)
         conversion = float(exchange)
-        qty = sys_stock(product)
-        product_created = sys_created(odoo, objects, actions, sku)
         code_id = unspsc_verification(odoo, objects, actions, product)
         brand = product.get("marca")
         cap_brand = brand.capitalize()
@@ -671,7 +773,7 @@ def sys_creation(odoo):
 
         if precios:  # * Precio en dolares por conversión
             costo = float(precios.get("precio_descuento"))
-            precio = precio + ((precio * 30) / 100)
+            precio = costo + ((costo * 15) / 100)
 
         if not precios:
             costo = 0
@@ -679,12 +781,12 @@ def sys_creation(odoo):
 
         costo *= conversion
         precio *= conversion
-        final_image = sys_get_image(product)
+        final_image = sys_get_image(product, has_img)
 
         if qty <= 0 or precio <= 0 or name == "":
             published = False
 
-        if specs == False:
+        if specs[0] == False:
             specs = ""
 
         prod_category = cat_creation(odoo, objects, actions, prod_categ)
@@ -703,10 +805,10 @@ def sys_creation(odoo):
             "description_purchase": "Producto Syscom",
             "description_sale": f"Producto: {name} \n\nMarca: {brand} \n",
             "description_picking": specs_link,
-            "description_pickingin": specs,
+            "description_pickingin": specs[0],
             # "weight": product.get("peso"),
             # "volume": record.get("volume"),
-            "image_1920": final_image,  # Encode base64
+            "image_1920": final_image[0],  # Encode base64
             "allow_out_of_stock_order": False,
             "show_availability": True,
             "available_threshold": 20,
@@ -714,7 +816,12 @@ def sys_creation(odoo):
             "out_of_stock_message": no_stock,
             "attribute_line_ids": attributes,
             "unspsc_code_id": code_id,
+            "x_has_image": final_image[1],
+            "x_has_description": specs[1],
         }
+
+        if prod_category == False:
+            product_template.pop("public_categ_ids")
 
         if code_id == False:
             product_template.pop("unspsc_code_id")
@@ -722,11 +829,14 @@ def sys_creation(odoo):
         if attributes == False or attributes == "":
             product_template.pop("attribute_line_ids")
 
-        if final_image == False:
+        if final_image[0] == False:
             product_template.pop("image_1920")
 
+        if specs[0] == False:
+            product_template.pop("description_picking")
+            product_template.pop("description_pickingin")
+
         if product_created[0]:
-            prod_id = product_created[1][0]
 
             try:  # ? Manejo de errores en la escritura
                 models.execute_kw(
@@ -791,6 +901,8 @@ def sys_creation(odoo):
 
 
 def sys_main(odoo):
-    creation = sys_creation(odoo)
+    exchange = sysc.sys_exchange()
+    catalogue = sysc.sys_catalogue()
+    creation = sys_creation(odoo, catalogue, exchange)
 
     return creation

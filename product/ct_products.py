@@ -7,8 +7,6 @@ import time
 from decouple import config
 import odoo as netdata
 
-catalogue = ct.ct_catalogue()
-
 
 def unspsc_verification(odoo, objects, actions, product):
     uid, models, db, password = odoo
@@ -94,11 +92,16 @@ def cat_creation(odoo, objects, actions, record):
             )
 
         except Exception as e:
-            cat_data.pop("parent_id")
 
             del e
 
         return category_id
+
+    if category == "" and parent != "":
+        category = parent
+
+    elif parent == "":
+        return False
 
     try:
         create = models.execute_kw(
@@ -111,7 +114,17 @@ def cat_creation(odoo, objects, actions, record):
         )
 
     except Exception as e:
-        cat_data.pop("parent_id")
+        if cat_data.__contains__("parent_id"):
+            cat_data.pop("parent_id")
+
+        create = models.execute_kw(
+            db,
+            uid,
+            password,
+            objects.get("product_category"),
+            actions.get("create"),
+            [cat_data],
+        )
 
         del e
 
@@ -252,25 +265,34 @@ def attribute_creation(odoo, objects, actions, attribute, value):
     return attribute
 
 
-def ct_get_image(product):
+def ct_get_image(product, has):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36",
+    }
+
+    if has:
+        return False, False
+
+    h_img = True
     image = product.get("imagen")
 
     url = validators.url(image)
 
     if not url:  # * Validación de la url
         image = config("NDS_DEF_IMG", default="")
+        h_img = False
 
     try:
-        get_image = requests.get(image)
+        get_image = requests.get(image, headers=headers)
     except Exception as e:
         del e
-        return False
+        return False, False
 
     data_image = get_image.content
     binary_image = base64.b64encode(data_image)
     final_image = binary_image.decode("ascii")
 
-    return final_image
+    return final_image, h_img
 
 
 def ct_stock(producto):
@@ -291,12 +313,12 @@ def ct_price(product):
 
     if promociones:
         costo = promociones[0].get("promocion")
-        precio = precio + ((precio * 10) / 100)
+        precio = costo + ((costo * 15) / 100)
 
-    # * En caso de no existir costo, aplicar 10% costo más impuestos
+    # * En caso de no existir costo, aplicar 20% costo más impuestos
     if not promociones:
         costo = precio
-        precio = costo + ((costo * 20) / 100)
+        precio = costo + ((costo * 15) / 100)
 
     # * Conversión de moneda de cambio
     if moneda == "USD":
@@ -446,23 +468,36 @@ def ct_stock_creation(odoo, objects, actions, id, qty):
 
 def ct_created(odoo, objects, actions, sku):
     uid, models, db, password = odoo
+    prod_info = {}
     found = False
     find = models.execute_kw(
         db,
         uid,
         password,
         objects.get("products"),
-        actions.get("search"),
+        actions.get("s_read"),
         [[["default_code", "=", sku]]],
     )
 
     if find:
         found = True
 
-    return found, find
+        p_id = find[0].get("id")
+        p_qty = find[0].get("qty_available")
+        p_img = find[0].get("x_has_image")
+        p_desc = find[0].get("x_has_description")
+
+        prod_info = {
+            "id": p_id,
+            "qty": p_qty,
+            "img": p_img,
+            "desc": p_desc,
+        }
+
+    return found, prod_info
 
 
-def ct_creation(odoo):
+def ct_creation(odoo, catalogue):
     print("Iniciando creación y/o actualización de productos - CT")
     uid, models, db, password = odoo
     total = 0
@@ -511,13 +546,24 @@ def ct_creation(odoo):
             odoo = netdata.odoo_ct_cinco()
             uid, models, db, password = odoo
 
+        qty = ct_stock(product)
+        sku = product.get("clave")
+        product_created = ct_created(odoo, objects, actions, sku)
+
+        prod_id = product_created[1].get("id")
+        p_qty = product_created[1].get("qty")
+        has_img = product_created[1].get("img")
+
+        if qty == p_qty and has_img:
+            total += 1
+
+            continue
+
         published = True
         name = product.get("nombre")
-        sku = product.get("clave")
         desc = product.get("descripcion_corta")
-        final_image = ct_get_image(product)
+        final_image = ct_get_image(product, has_img)
         prices = ct_price(product)
-        qty = ct_stock(product)
         specs = ct_specs(product)
         worth = prices[0]
         price = prices[1]
@@ -526,7 +572,6 @@ def ct_creation(odoo):
         category = product.get("categoria")
         prod_category = cat_creation(odoo, objects, actions, product)
         attrs = {"Marcas": cap_brand, "Categorías": category}
-        product_created = ct_created(odoo, objects, actions, sku)
         attributes = attribute_created(odoo, objects, actions, sku, attrs)
 
         if qty <= 0 or name == "":
@@ -546,7 +591,7 @@ def ct_creation(odoo):
             "description_sale": f"{desc} \n\n{specs}",
             # "weight": record.get("weight"),
             # "volume": record.get("volume"),
-            "image_1920": final_image,
+            "image_1920": final_image[0],
             "allow_out_of_stock_order": False,
             "show_availability": True,
             "available_threshold": 20,
@@ -554,16 +599,20 @@ def ct_creation(odoo):
             "out_of_stock_message": no_stock,
             "attribute_line_ids": attributes,  # Creación de atributos
             # "unspsc_code_id": record.get("sat_code"), # Envio de codigo sat
+            "x_has_image": final_image[1],
+            # "x_has_description": specs[1],
         }
 
-        if final_image == False:
+        if prod_category == False:
+            product_template.pop("public_categ_ids")
+
+        if final_image[0] == False:
             product_template.pop("image_1920")
 
         if attributes == False or attributes == "":
             product_template.pop("attribute_line_ids")
 
         if product_created[0]:
-            prod_id = product_created[1][0]
 
             try:  # ? Manejo de errores en la escritura
                 models.execute_kw(
@@ -629,6 +678,7 @@ def ct_creation(odoo):
 
 
 def ct_main(odoo):
-    creation = ct_creation(odoo)
+    catalogue = ct.ct_catalogue()
+    creation = ct_creation(odoo, catalogue)
 
     return creation

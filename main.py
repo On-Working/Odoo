@@ -15,21 +15,21 @@ TEC = "Tec"
 
 
 def main():
-    odoo = netdata.odoo_sys_uno()
+    # odoo = netdata.odoo_sys_uno()
 
-    local_time = time.strftime(f"{TIME_STR} \n")
-    print(START.format(SYS, local_time), end="\r")
-    print("")
-    sys_products = catalogue.sys_main(odoo)
-    sys_success = sys_products[0]
-    sys_fails = sys_products[1]
-    print(
-        RESULT.format(sys_success, sys_fails),
-        end="\r",
-    )
-    print("")
-    local_time = time.strftime(f"{TIME_STR} \n\n")
-    print(END.format(SYS, local_time), end="\r")
+    # local_time = time.strftime(f"{TIME_STR} \n")
+    # print(START.format(SYS, local_time), end="\r")
+    # print("")
+    # sys_products = catalogue.sys_main(odoo)
+    # sys_success = sys_products[0]
+    # sys_fails = sys_products[1]
+    # print(
+    #     RESULT.format(sys_success, sys_fails),
+    #     end="\r",
+    # )
+    # print("")
+    # local_time = time.strftime(f"{TIME_STR} \n\n")
+    # print(END.format(SYS, local_time), end="\r")
 
     odoo = netdata.odoo_ct_uno()
     local_time = time.strftime(f"{TIME_STR} \n")
