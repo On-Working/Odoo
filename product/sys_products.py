@@ -351,7 +351,7 @@ def sys_get_specs(url, has):
     div_content = content.find("div", {"class": "container"})
 
     if not div_content:
-        return default_html
+        return default_html, description
 
     comment_specs = div_content.find(
         string=lambda text: isinstance(text, Comment) and specs_comment in text
@@ -452,8 +452,15 @@ def sys_stock(product):
     stock = product.get("existencia")
     new_stock = 0
 
-    if stock.__contains__("nuevo"):
-        new_stock = stock.get("nuevo")
+    try:
+        if stock.__contains__("nuevo"):
+            new_stock = stock.get("nuevo")
+
+    except Exception as e:
+        del e
+
+    if stock == None:
+        new_stock = total_stock
 
     return new_stock
 
@@ -597,12 +604,14 @@ def sys_created(odoo, objects, actions, sku):
         found = True
 
         p_id = find[0].get("id")
+        p_price = find[0].get("standard_price")
         p_qty = find[0].get("qty_available")
         p_img = find[0].get("x_has_image")
         p_desc = find[0].get("x_has_description")
 
         prod_info = {
             "id": p_id,
+            "cost": p_price,
             "qty": p_qty,
             "img": p_img,
             "desc": p_desc,
@@ -617,9 +626,7 @@ def sys_creation(odoo, catalogue, exchange):
     total = 0
     success = 0
     errors = 0
-    no_stock = (
-        "Por el momento no contamos con este producto.\n¡Comunícate con nosotros!"
-    )
+    no_stock = "Producto disponible bajo pedido.\nPor favor póngase en contacto con nosotros para solicitar una cotización personalizada."
 
     objects = {  # Modelos disponibles en Odoo
         "products": "product.product",
@@ -733,25 +740,38 @@ def sys_creation(odoo, catalogue, exchange):
             uid, models, db, password = odoo
 
         qty = sys_stock(product)
+        conversion = float(exchange)
         sku = product.get("modelo")
+        precios = product.get("precios")
+
+        if precios:  # * Precio en dolares por conversión
+            costo = float(precios.get("precio_descuento"))
+            precio = costo + ((costo * 15) / 100)
+
+        if not precios:
+            costo = 0
+            precio = 0
+
+        costo *= conversion
+        precio *= conversion
+
         product_created = sys_created(odoo, objects, actions, sku)
 
         prod_id = product_created[1].get("id")
+        cost = product_created[1].get("cost")
         p_qty = product_created[1].get("qty")
         has_img = product_created[1].get("img")
         has_desc = product_created[1].get("desc")
 
-        if qty == p_qty and has_img and has_desc:
+        if costo == cost and qty == p_qty and has_img and has_desc:
             total += 1
 
             continue
 
         published = True
         name = product.get("titulo")
-        precios = product.get("precios")
         specs_link = product.get("link_privado")
         specs = sys_get_specs(specs_link, has_desc)
-        conversion = float(exchange)
         code_id = unspsc_verification(odoo, objects, actions, product)
         brand = product.get("marca")
         cap_brand = brand.capitalize()
@@ -771,23 +791,10 @@ def sys_creation(odoo, catalogue, exchange):
         prod_categ = {"categoria": category, "subcategoria": subcategory}
         attrs = {"Marcas": cap_brand, "Categorías": category}
 
-        if precios:  # * Precio en dolares por conversión
-            costo = float(precios.get("precio_descuento"))
-            precio = costo + ((costo * 15) / 100)
-
-        if not precios:
-            costo = 0
-            precio = 0
-
-        costo *= conversion
-        precio *= conversion
         final_image = sys_get_image(product, has_img)
 
         if qty <= 0 or precio <= 0 or name == "":
             published = False
-
-        if specs[0] == False:
-            specs = ""
 
         prod_category = cat_creation(odoo, objects, actions, prod_categ)
         attributes = attribute_created(odoo, objects, actions, sku, attrs)
