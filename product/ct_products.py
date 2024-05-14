@@ -55,53 +55,18 @@ def cat_created(odoo, objects, actions, name):
 
 def cat_creation(odoo, objects, actions, record):
     uid, models, db, password = odoo
-    parent_of_parent = ""
-    parent = record.get("categoria")
-    parent_created = cat_created(odoo, objects, actions, parent)
-    parent_id = False
-    category = record.get("subcategoria")
+    category = record.get("categoria")
     category_created = cat_created(odoo, objects, actions, category)
-
-    if parent_created[0]:
-        parent_id = parent_created[1][0].get("id")
-        parent_of_parent = parent_created[1][0].get("parent_id")
-
-        if parent_of_parent:
-            parent_of_parent = parent_created[1][0].get("parent_id")[0]
 
     cat_data = {
         "name": category,
-        "parent_id": parent_id,
         "website_description": category,
     }
-
-    if not parent_id:
-        cat_data.pop("parent_id")
 
     if category_created[0]:
         category_id = category_created[1][0].get("id")
 
-        try:
-            models.execute_kw(
-                db,
-                uid,
-                password,
-                objects.get("product_category"),
-                actions.get("write"),
-                [[category_id], cat_data],
-            )
-
-        except Exception as e:
-
-            del e
-
         return category_id
-
-    if category == "" and parent != "":
-        category = parent
-
-    elif parent == "":
-        return False
 
     try:
         create = models.execute_kw(
@@ -114,8 +79,6 @@ def cat_creation(odoo, objects, actions, record):
         )
 
     except Exception as e:
-        if cat_data.__contains__("parent_id"):
-            cat_data.pop("parent_id")
 
         create = models.execute_kw(
             db,
