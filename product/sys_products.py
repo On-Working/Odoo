@@ -38,6 +38,13 @@ def cat_created(odoo, objects, actions, name):
 def cat_creation(odoo, objects, actions, record):
     uid, models, db, password = odoo
     category = record.get("categoria")
+
+    if category == "":
+        category = record.get("subcategoria")
+
+    if category == "":
+        return False
+
     category_created = cat_created(odoo, objects, actions, category)
 
     cat_data = {

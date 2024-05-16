@@ -99,6 +99,13 @@ def tec_cat_created(odoo, objects, actions, name):
 def tec_cat_creation(odoo, objects, actions, record):
     uid, models, db, password = odoo
     category = html.unescape(record.get("line"))
+
+    if category == "":
+        category = html.unescape(record.get("category"))
+
+    if category == "":
+        return False
+
     category_created = tec_cat_created(odoo, objects, actions, category)
 
     cat_data = {

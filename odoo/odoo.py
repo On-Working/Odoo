@@ -297,11 +297,26 @@ def odoo_sys_veintitres():
 
 # ? Conexiones CT
 def odoo_ct_uno():
+    if URL == "":
+        print("Error en la conexión principal con Odoo")
+        return
+
+    print("Iniciando conexión con la base de datos de Odoo")
     common = xmlrpc.client.ServerProxy(COMMON.format(URL))  # * Conexión
+
+    if USER == "" or CT_UNO == "":
+        print("Error en las credenciales")
+        return
 
     uid = common.authenticate(DB, USER, CT_UNO, {})  # * Autenticación
     models = xmlrpc.client.ServerProxy(OBJECT.format(URL))  # * Obtención de objetos
 
+    if uid == False:
+        print("Error en la autenticación del usuario")
+        return
+
+    print("Conexión con la base de datos Netdata Solutions exitosa")
+    print("Retornando datos: Uid, Models, Password \n")
     return (uid, models, DB, CT_UNO)
 
 
@@ -343,10 +358,26 @@ def odoo_ct_cinco():
 
 # ? Conexiones TECNOSINERGIA
 def odoo_tec_uno():
+    if URL == "":
+        print("Error en la conexión principal con Odoo")
+        return
+
+    print("Iniciando conexión con la base de datos de Odoo")
     common = xmlrpc.client.ServerProxy(COMMON.format(URL))  # * Conexión
+
+    if USER == "" or TEC_UNO == "":
+        print("Error en las credenciales")
+        return
 
     uid = common.authenticate(DB, USER, TEC_UNO, {})  # * Autenticación
     models = xmlrpc.client.ServerProxy(OBJECT.format(URL))  # * Obtención de objetos
+
+    if uid == False:
+        print("Error en la autenticación del usuario")
+        return
+
+    print("Conexión con la base de datos Netdata Solutions exitosa")
+    print("Retornando datos: Uid, Models, Password \n")
 
     return (uid, models, DB, TEC_UNO)
 
