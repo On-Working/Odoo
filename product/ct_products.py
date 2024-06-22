@@ -315,7 +315,7 @@ def ct_specs(product):
     return all_specs
 
 
-def ct_stock_created(odoo, objects, actions, id, qty):
+def ct_stock_created(odoo, objects, actions, p_id, p_qty):
     uid, models, db, password = odoo
     location_id = 418  # CT
     scrap_location_id = 352  # Ecommerce Scrap
@@ -326,26 +326,26 @@ def ct_stock_created(odoo, objects, actions, id, qty):
         password,
         objects.get("stock"),
         actions.get("s_read"),
-        [[["location_id", "=", location_id], ["product_id", "=", id]]],
+        [[["location_id", "=", location_id], ["product_id", "=", p_id]]],
         {"fields": ["quantity"]},
     )
 
     if not find:
-        creation = ct_stock_creation(odoo, objects, actions, id, qty)
+        creation = ct_stock_creation(odoo, objects, actions, p_id, p_qty)
         return creation
 
     stock = find[0]["quantity"]
 
-    dif = qty - stock
+    dif = p_qty - stock
 
     if dif == 0:
         return
 
     if dif < 0:
-        done = stock - qty
+        done = stock - p_qty
 
         scrap_order = {  # * Creacion de orden de desecho
-            "product_id": id,
+            "product_id": p_id,
             "scrap_qty": done,
             "location_id": location_id,
             "scrap_location_id": scrap_location_id,
@@ -375,19 +375,19 @@ def ct_stock_created(odoo, objects, actions, id, qty):
         return scrap_confirmation
 
     else:
-        creation = ct_stock_creation(odoo, objects, actions, id, dif)
+        creation = ct_stock_creation(odoo, objects, actions, p_id, dif)
 
         return creation
 
 
-def ct_stock_creation(odoo, objects, actions, id, qty):
+def ct_stock_creation(odoo, objects, actions, p_id, p_qty):
     uid, models, db, password = odoo
     partner_id = 887  # 887 CT
     picking_type_id = 303  # Ecommerce: Transferencias internas
     location_id = 3  # 3 Virtual Locations
     location_dest_id = 418  # 418 CT
 
-    if qty == 0:
+    if p_qty == 0:
         return
 
     picking_order = {  # * Creacion de orden de inventario
@@ -406,9 +406,9 @@ def ct_stock_creation(odoo, objects, actions, id, qty):
                     "name": "Actual stock",
                     "location_id": location_id,
                     "location_dest_id": location_dest_id,
-                    "product_id": id,
+                    "product_id": p_id,
                     "product_uom": 1,
-                    "quantity_done": qty,
+                    "product_uom_qty": p_qty,
                 },
             )
         ],
@@ -453,12 +453,14 @@ def ct_created(odoo, objects, actions, sku):
         found = True
 
         p_id = find[0].get("id")
+        p_price = find[0].get("standard_price")
         p_qty = find[0].get("qty_available")
         p_img = find[0].get("x_has_image")
         p_desc = find[0].get("x_has_description")
 
         prod_info = {
             "id": p_id,
+            "cost": p_price,
             "qty": p_qty,
             "img": p_img,
             "desc": p_desc,
@@ -518,13 +520,17 @@ def ct_creation(odoo, catalogue):
 
         qty = ct_stock(product)
         sku = product.get("clave")
+        prices = ct_price(product)
+        worth = prices[0]
+        price = prices[1]
         product_created = ct_created(odoo, objects, actions, sku)
 
         prod_id = product_created[1].get("id")
+        cost = product_created[1].get("cost")
         p_qty = product_created[1].get("qty")
         has_img = product_created[1].get("img")
 
-        if qty == p_qty and has_img:
+        if worth == cost and qty == p_qty and has_img:
             total += 1
 
             continue
@@ -533,10 +539,8 @@ def ct_creation(odoo, catalogue):
         name = product.get("nombre")
         desc = product.get("descripcion_corta")
         final_image = ct_get_image(product, has_img)
-        prices = ct_price(product)
+
         specs = ct_specs(product)
-        worth = prices[0]
-        price = prices[1]
         brand = product.get("marca")
         cap_brand = brand.capitalize()
         category = product.get("categoria")
@@ -597,6 +601,8 @@ def ct_creation(odoo, catalogue):
             except Exception as e:
                 errors += 1
 
+                print(e)
+
                 del e
 
             try:  # ? Manejo de errores en la actualizacion de stock
@@ -605,6 +611,8 @@ def ct_creation(odoo, catalogue):
             except Exception as e:
                 errors += 1
                 total += 1
+
+                print(e)
 
                 del e
 
@@ -633,6 +641,8 @@ def ct_creation(odoo, catalogue):
             except Exception as e:
                 errors += 1
                 total += 1
+
+                print(e)
 
                 del e
 
