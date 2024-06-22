@@ -144,7 +144,7 @@ def tec_cat_creation(odoo, objects, actions, record):
     return create
 
 
-def tec_stock_created(odoo, objects, actions, id, qty):
+def tec_stock_created(odoo, objects, actions, p_id, p_qty):
     uid, models, db, password = odoo
     location_id = 420  # Tecnosinergia
     scrap_location_id = 352  # Ecommerce Scrap
@@ -155,26 +155,26 @@ def tec_stock_created(odoo, objects, actions, id, qty):
         password,
         objects.get("stock"),
         actions.get("s_read"),
-        [[["location_id", "=", location_id], ["product_id", "=", id]]],
+        [[["location_id", "=", location_id], ["product_id", "=", p_id]]],
         {"fields": ["quantity"]},
     )
 
     if not find:
-        creation = tec_stock_creation(odoo, objects, actions, id, qty)
+        creation = tec_stock_creation(odoo, objects, actions, p_id, p_qty)
         return creation
 
     stock = find[0]["quantity"]
 
-    dif = qty - stock
+    dif = p_qty - stock
 
     if dif == 0:
         return
 
     if dif < 0:
-        done = stock - qty
+        done = stock - p_qty
 
         scrap_order = {  # * Creacion de orden de desecho
-            "product_id": id,
+            "product_id": p_id,
             "scrap_qty": done,
             "location_id": location_id,
             "scrap_location_id": scrap_location_id,
@@ -204,19 +204,19 @@ def tec_stock_created(odoo, objects, actions, id, qty):
         return scrap_confirmation
 
     else:
-        creation = tec_stock_creation(odoo, objects, actions, id, dif)
+        creation = tec_stock_creation(odoo, objects, actions, p_id, dif)
 
         return creation
 
 
-def tec_stock_creation(odoo, objects, actions, id, qty):
+def tec_stock_creation(odoo, objects, actions, p_id, p_qty):
     uid, models, db, password = odoo
     partner_id = 206  # 206 Tecnosinergia
     picking_type_id = 303  # Ecommerce: Transferencias internas
     location_id = 3  # 3 Virtual Locations
     location_dest_id = 420  # 420 Tecnosinergia
 
-    if qty == 0:
+    if p_qty == 0:
         return
 
     picking_order = {  # * Creacion de orden de inventario
@@ -235,9 +235,9 @@ def tec_stock_creation(odoo, objects, actions, id, qty):
                     "name": "Actual stock",
                     "location_id": location_id,
                     "location_dest_id": location_dest_id,
-                    "product_id": id,
+                    "product_id": p_id,
                     "product_uom": 1,
-                    "quantity_done": qty,
+                    "product_uom_qty": p_qty,
                 },
             )
         ],

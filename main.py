@@ -49,7 +49,7 @@ def main():
     local_time = time.strftime(f"{TIME_STR} \n\n")
     print(END.format(TEC, local_time), end="\r")
 
-    # * Actulizacion sys
+    # * Actualizacion sys
 
     odoo = netdata.odoo_sys_uno()
     local_time = time.strftime(f"{TIME_STR} \n")
