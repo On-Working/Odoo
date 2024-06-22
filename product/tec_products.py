@@ -223,7 +223,7 @@ def tec_stock_creation(odoo, objects, actions, p_id, p_qty):
         "partner_id": partner_id,
         "picking_type_id": picking_type_id,
         "move_type": "direct",
-        "immediate_transfer": True,
+        # "immediate_transfer": True, Utilizado en odoo 16
         "priority": "1",
         "location_id": location_id,
         "location_dest_id": location_dest_id,
